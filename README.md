@@ -170,3 +170,35 @@ localhost:18443 and a test CA/server certificate under `/tmp/zmr-tls`. It refuse
 different schema. It exercises OAuth rejection, sandbox processing, callbacks,
 restart recovery, idempotency, cache eviction/isolation/integrity and opt-in local
 fallback. Do not point it at a deployed runner.
+
+### GitHub Actions
+
+The workflow in `.github/workflows/test.yml` runs on pushes, pull requests and
+manual dispatches in the standalone `zotonic/mediarunner` repository. It checks out
+`zotonic/zotonic`, then checks out this repository directly into
+`zotonic/apps_user/mediarunner`. GitHub only discovers the workflow once this site
+is the repository root; it does not run from the nested directory in Zotonic.
+
+CI uses OTP 28.5, PostgreSQL 16 and an Ubuntu 24.04 runner. It builds Zotonic and
+the site together, then runs the unit tests and full HTTPS integration suite as
+an unprivileged user. Sandbox enforcement is required: unavailable Landlock or
+sandbox helpers fail the run. ImageMagick 6 and 7 are both supported by the
+integration fixture. No production credentials or repository secrets are needed.
+
+The Zotonic ref defaults to `master`. Set the repository variable `ZOTONIC_REF`
+for push/PR builds, or supply `zotonic_ref` when starting a manual run. The selected
+ref must include the media runner client, callback controller and SVG chart scomp;
+until these changes are merged, select the branch or commit containing them.
+
+To run the same checks locally after building Zotonic:
+
+```sh
+ZOTONIC_DBHOST=localhost bash apps_user/mediarunner/test/ci.sh
+```
+
+Use a development PostgreSQL instance with database/user/password `zotonic`.
+The harness uses the **disposable** `mediarunner_test` schema, loopback ports
+18080/18443/18252/18883/18884, temporary data/configuration and a generated test CA.
+It temporarily changes the site's configuration, restores it on exit, and stops
+its Erlang VM when finished. Do not run it in a checkout serving a live site.
+The test schema remains available for subsequent test runs.

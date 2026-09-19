@@ -1,0 +1,72 @@
+name: Test mediarunner
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      zotonic_ref:
+        description: Zotonic branch, tag or commit with media runner support
+        required: false
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: erlang:28.5
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: zotonic
+          POSTGRES_USER: zotonic
+          POSTGRES_PASSWORD: zotonic
+        options: >-
+          --health-cmd "pg_isready -U zotonic -d zotonic"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out Zotonic
+        uses: actions/checkout@v7
+        with:
+          repository: zotonic/zotonic
+          ref: ${{ inputs.zotonic_ref || vars.ZOTONIC_REF || 'master' }}
+          path: zotonic
+          persist-credentials: false
+
+      - name: Install mediarunner into Zotonic
+        uses: actions/checkout@v7
+        with:
+          path: zotonic/apps_user/mediarunner
+          persist-credentials: false
+
+      - name: Install build and media tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential libseccomp-dev sudo openssl \
+            imagemagick ghostscript ffmpeg file
+          adduser --disabled-password --gecos '' zotonic
+
+      - name: Build Zotonic and mediarunner
+        working-directory: zotonic
+        run: make
+
+      - name: Run unit and integration tests without root privileges
+        working-directory: zotonic
+        run: |
+          chown -R zotonic:zotonic .
+          sudo -u zotonic env SHELL=/bin/sh ZOTONIC_DBHOST=postgres \
+            bash apps_user/mediarunner/test/ci.sh

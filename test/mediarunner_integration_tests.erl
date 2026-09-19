@@ -19,10 +19,9 @@
 
 -module(mediarunner_integration_tests).
 
--moduledoc("
-Explicit integration test for a disposable mediarunner site on localhost:18443. Never run
-against a production site/database.
-").
+-moduledoc "\n"
+"Explicit integration test for a disposable mediarunner site on localhost:18443. Never run\n"
+"against a production site/database.\n".
 -export([run/0, ssl_options/2]).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -51,10 +50,11 @@ run() ->
     ),
     {ok, ReadOnly} = m_oauth2:encode_bearer_token(ReadOnlyId, 3600, Context),
     ok = z_notifier:observe(ssl_options, {?MODULE, ssl_options}, self(), Context),
-    Cert = "/tmp/zmr-tls/ca.crt",
+    Cert = tls_path("ca.crt"),
     Settings = [
         {media_runner_url, Url},
         {media_runner_oauth2_key, Token},
+        {media_runner_imagemagick_legacy, os:find_executable("magick") =:= false},
         {media_runner_cacertfile, Cert},
         {media_runner_wait_timeout, 10000},
         {media_runner_local_fallback, false}
@@ -64,8 +64,12 @@ run() ->
     lists:foreach(fun({K, V}) -> application:set_env(zotonic, K, V) end, Settings),
     application:set_env(mediarunner, mediarunner_callback_urls, [Callback]),
     try
-        ?assertEqual(Callback, z_dispatcher:url_for(media_runner_callback, [{absolute_url, true}], Context)),
-        ?assertEqual({error, media_runner_configuration}, z_exec:run(file, <<"printf no-site">>, #{})),
+        ?assertEqual(
+            Callback, z_dispatcher:url_for(media_runner_callback, [{absolute_url, true}], Context)
+        ),
+        ?assertEqual(
+            {error, media_runner_configuration}, z_exec:run(file, <<"printf no-site">>, #{})
+        ),
         ?assertEqual({ok, 401}, z_media_runner_protocol:post(Url, <<"invalid-token">>, #{})),
         ?assertEqual({ok, 403}, z_media_runner_protocol:post(Url, ReadOnly, #{})),
         ?assertEqual({ok, 400}, z_media_runner_protocol:post(Url, Token, #{})),
@@ -104,7 +108,13 @@ image_roundtrip(Context) ->
             {ok, _},
             z_exec:run(
                 imagemagick,
-                ["magick ", z_filelib:os_filename(Input), " ", z_filelib:os_filename(Output)],
+                [
+                    image_command(),
+                    " ",
+                    z_filelib:os_filename(Input),
+                    " ",
+                    z_filelib:os_filename(Output)
+                ],
                 #{read => [Input], write => [Output]},
                 Context
             )
@@ -239,14 +249,16 @@ cache_checks(Context) ->
 fallback(Url, Context) ->
     application:set_env(zotonic, media_runner_url, <<"https://localhost:18999/jobs">>),
     ?assertMatch(
-        {error, {media_runner_unavailable, _}}, z_exec:run(file, <<"printf fallback">>, #{}, Context)
+        {error, {media_runner_unavailable, _}},
+        z_exec:run(file, <<"printf fallback">>, #{}, Context)
     ),
     application:set_env(zotonic, media_runner_local_fallback, true),
     ?assertEqual({ok, <<"fallback">>}, z_exec:run(file, <<"printf fallback">>, #{}, Context)),
     application:set_env(zotonic, media_runner_url, Url),
     application:set_env(zotonic, media_runner_oauth2_key, <<"invalid-token">>),
     ?assertEqual(
-        {error, {media_runner_http, 401}}, z_exec:run(file, <<"printf must-not-fallback">>, #{}, Context)
+        {error, {media_runner_http, 401}},
+        z_exec:run(file, <<"printf must-not-fallback">>, #{}, Context)
     ).
 await(_, 0) ->
     error(await_timeout);
@@ -262,4 +274,18 @@ restore(App, K, undefined) -> application:unset_env(App, K);
 restore(App, K, {ok, V}) -> application:set_env(App, K, V).
 
 ssl_options(_, _) ->
-    {ok, [{certfile, "/tmp/zmr-tls/server.crt"}, {keyfile, "/tmp/zmr-tls/server.key"}]}.
+    {ok, [{certfile, tls_path("server.crt")}, {keyfile, tls_path("server.key")}]}.
+
+image_command() ->
+    case os:find_executable("magick") of
+        false -> "convert";
+        _ -> "magick"
+    end.
+
+tls_path(Name) ->
+    Dir =
+        case os:getenv("MEDIARUNNER_TEST_TLS_DIR") of
+            false -> "/tmp/zmr-tls";
+            Value -> Value
+        end,
+    filename:join(Dir, Name).
