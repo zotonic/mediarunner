@@ -1,0 +1,9 @@
+{application, mediarunner, [
+    {description, "Sandboxed remote media processing site"},
+    {vsn, "git"},
+    {registered, []},
+    {applications, [kernel, stdlib, zotonic_core]},
+    {env, []},
+    {modules, []},
+    {licenses, ["Apache-2.0"]}
+]}.

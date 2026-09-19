@@ -1,0 +1,6 @@
+[
+    {mediarunner_dashboard, [], controller_admin,
+        [{template, "mediarunner_dashboard.tpl"}, {acl_module, mediarunner}]},
+    {mediarunner_jobs, ["media-runner", "jobs"], controller_mediarunner_jobs,
+        []}
+].
