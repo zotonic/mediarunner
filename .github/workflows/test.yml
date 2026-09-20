@@ -22,8 +22,6 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    container:
-      image: erlang:28.5
     services:
       postgres:
         image: postgres:16
@@ -31,6 +29,8 @@ jobs:
           POSTGRES_DB: zotonic
           POSTGRES_USER: zotonic
           POSTGRES_PASSWORD: zotonic
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U zotonic -d zotonic"
           --health-interval 10s
@@ -38,6 +38,17 @@ jobs:
           --health-retries 10
 
     steps:
+      - name: Install Erlang on Ubuntu
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '28.5'
+
+      - name: Report execution platform
+        run: |
+          cat /etc/os-release
+          uname -a
+          erl -noshell -eval 'io:format("Erlang OS: ~p~n", [os:type()]), {unix, linux} = os:type(), halt().'
+
       - name: Check out Zotonic
         uses: actions/checkout@v7
         with:
@@ -54,11 +65,11 @@ jobs:
 
       - name: Install build and media tools
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
             build-essential libseccomp-dev sudo openssl \
             imagemagick ghostscript ffmpeg file
-          adduser --disabled-password --gecos '' zotonic
+          sudo adduser --disabled-password --gecos '' zotonic
 
       - name: Build Zotonic and mediarunner
         working-directory: zotonic
@@ -67,6 +78,6 @@ jobs:
       - name: Run unit and integration tests without root privileges
         working-directory: zotonic
         run: |
-          chown -R zotonic:zotonic .
-          sudo -u zotonic env SHELL=/bin/sh ZOTONIC_DBHOST=postgres \
+          sudo chown -R zotonic:zotonic .
+          sudo -u zotonic env PATH="$PATH" SHELL=/bin/sh ZOTONIC_DBHOST=localhost ZOTONIC_SANDBOX_TESTS=1 \
             bash apps_user/mediarunner/test/ci.sh

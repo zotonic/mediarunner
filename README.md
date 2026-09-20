@@ -331,11 +331,14 @@ manual dispatches in the standalone `zotonic/mediarunner` repository. It checks 
 `zotonic/apps_user/mediarunner`. GitHub only discovers the workflow once this site
 is the repository root; it does not run from the nested directory in Zotonic.
 
-CI uses OTP 28.5, PostgreSQL 16 and an Ubuntu 24.04 runner. It builds Zotonic and
-the site together, then runs the unit tests and full HTTPS integration suite as
-an unprivileged user. Sandbox enforcement is required: unavailable Landlock or
+CI installs OTP 28.5 directly on Ubuntu 24.04, with PostgreSQL 16 in a service
+container. It logs the host OS, builds Zotonic and the site together, then runs
+the unit tests (including native sandbox tests) and full HTTPS integration suite
+as an unprivileged user. Sandbox enforcement is required: unavailable Landlock or
 sandbox helpers fail the run. ImageMagick 6 and 7 are both supported by the
-integration fixture. No production credentials or repository secrets are needed.
+integration fixture. The unsupported-platform unit test deliberately simulates
+FreeBSD; its fallback NOTICE describes the mocked OS, not the actual CI runner.
+No production credentials or repository secrets are needed.
 
 The Zotonic ref defaults to `master`. Set the repository variable `ZOTONIC_REF`
 for push/PR builds, or supply `zotonic_ref` when starting a manual run. The selected
@@ -345,7 +348,7 @@ until these changes are merged, select the branch or commit containing them.
 To run the same checks locally after building Zotonic:
 
 ```sh
-ZOTONIC_DBHOST=localhost bash apps_user/mediarunner/test/ci.sh
+ZOTONIC_DBHOST=localhost ZOTONIC_SANDBOX_TESTS=1 bash apps_user/mediarunner/test/ci.sh
 ```
 
 The integration suite uploads a 70 MiB source by default. Set
