@@ -8,7 +8,7 @@
 
 {% block navigation %}
 <nav class="mr-nav" aria-label="{_ Main navigation _}">
-    <a href="{% url mediarunner_dashboard %}" class="mr-brand"><span aria-hidden="true">▧</span> {_ Media runner _}</a>
+    <a href="{% url home %}" class="mr-brand"><span aria-hidden="true">▧</span> {_ Media runner _}</a>
     {% if m.acl.is_admin %}<a href="{% url mediarunner_consumers %}">{_ Consumers _}</a>{% endif %}
     <a href="{% url admin_oauth2_apps %}">{_ OAuth2 clients _}</a>
     <a href="{% url admin %}">{_ Site administration _}</a>
