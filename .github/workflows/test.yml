@@ -1,7 +1,9 @@
 name: Test mediarunner
 
 on:
+  # Branch work is tested through pull_request; main is tested after merging.
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
     inputs:
