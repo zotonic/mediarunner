@@ -43,7 +43,11 @@ snapshot(Context) ->
     #{workers => Limit, cores => Cores, available_memory => Available, memory_per_worker => Budget}.
 
 -spec workers(pos_integer(), non_neg_integer(), pos_integer()) -> pos_integer().
-workers(Cores, Available, PerWorker) ->
+workers(Cores, Available, PerWorker) when
+    is_integer(Cores), Cores > 0,
+    is_integer(Available), Available >= 0,
+    is_integer(PerWorker), PerWorker > 0
+->
     max(1, min(32, min(max(1, Cores - 1), Available * 3 div 4 div PerWorker))).
 
 -spec queue(z:context()) -> term().

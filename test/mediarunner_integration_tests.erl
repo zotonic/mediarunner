@@ -120,7 +120,7 @@ image_roundtrip(Context) ->
             )
         ),
         {ok, <<137, "PNG", _/binary>>} = file:read_file(Output),
-        {ok, Meta} = z_media_identify:identify_file(Input, z_context:new(mediarunner)),
+        {ok, Meta} = z_media_identify:identify_file(z_convert:to_binary(Input), z_context:new(mediarunner)),
         ?assertEqual(1, maps:get(<<"width">>, Meta)),
         ok = file:delete(Output),
         ?assertEqual(ok, z_media_preview:convert(Input, Output, [{width, 1}], Context)),
