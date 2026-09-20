@@ -334,7 +334,8 @@ is the repository root; it does not run from the nested directory in Zotonic.
 CI installs OTP 28.5 directly on Ubuntu 24.04, with PostgreSQL 16 in a service
 container. It logs the host OS, builds Zotonic and the site together, then runs
 the unit tests (including native sandbox tests) and full HTTPS integration suite
-as an unprivileged user. Sandbox enforcement is required: unavailable Landlock or
+as the unprivileged GitHub runner user, preserving access to the checkout and
+setup-beam installation. A non-root check precedes the tests. Sandbox enforcement is required: unavailable Landlock or
 sandbox helpers fail the run. ImageMagick 6 and 7 are both supported by the
 integration fixture. The unsupported-platform unit test deliberately simulates
 FreeBSD; its fallback NOTICE describes the mocked OS, not the actual CI runner.

@@ -71,7 +71,6 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential libseccomp-dev sudo openssl \
             imagemagick ghostscript ffmpeg file
-          sudo adduser --disabled-password --gecos '' zotonic
 
       - name: Build Zotonic and mediarunner
         working-directory: zotonic
@@ -80,6 +79,9 @@ jobs:
       - name: Run unit and integration tests without root privileges
         working-directory: zotonic
         run: |
-          sudo chown -R zotonic:zotonic .
-          sudo -u zotonic env PATH="$PATH" SHELL=/bin/sh ZOTONIC_DBHOST=localhost ZOTONIC_SANDBOX_TESTS=1 \
+          # The Ubuntu runner user owns both the checkout and setup-beam's OTP.
+          # Keep tests unprivileged without switching to a user that cannot
+          # traverse the runner's workspace or temporary installation paths.
+          test "$(id -u)" -ne 0
+          env SHELL=/bin/sh ZOTONIC_DBHOST=localhost ZOTONIC_SANDBOX_TESTS=1 \
             bash apps_user/mediarunner/test/ci.sh
