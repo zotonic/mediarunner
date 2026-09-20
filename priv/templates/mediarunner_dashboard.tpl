@@ -1,24 +1,50 @@
 {% extends "admin_base.tpl" %}
+
 {% block title %}{_ Media runner _}{% endblock %}
+
 {% block bodyclass %}mediarunner{% endblock %}
+
 {% block head_extra %}{% lib "css/mediarunner.css" %}{% endblock %}
+
 {% block navigation %}
 <nav class="mr-nav" aria-label="{_ Main navigation _}">
-    <a href="{% url mediarunner_dashboard %}" class="mr-brand"><span aria-hidden="true">▧</span> {_ Media runner _}</a>
+    <a href="{% url home %}" class="mr-brand"><span aria-hidden="true">▧</span> {_ Media runner _}</a>
+    {% if m.acl.is_admin %}<a href="{% url mediarunner_consumers %}">{_ Consumers _}</a>{% endif %}
     <a href="{% url admin_oauth2_apps %}">{_ OAuth2 clients _}</a>
     <a href="{% url admin %}">{_ Site administration _}</a>
     <a href="{% url logoff %}">{_ Log out _}</a>
 </nav>
 {% endblock %}
+
 {% block content %}
 <main id="mediarunner" class="mr-dashboard">
+    {% if m.acl.user %}
+        {% with m.mediarunner.sandbox as sandbox %}
+            {% if sandbox %}
+                <section id="mr-isolation-alarm" class="mr-isolation-alarm" role="alert" aria-atomic="true" aria-labelledby="mr-isolation-title"{% if sandbox.state != 'unsupported' and sandbox.state != 'error' %} hidden{% endif %}>
+                    <span class="mr-isolation-icon" aria-hidden="true">⚠</span>
+                    <div>
+                        <h2 id="mr-isolation-title">{_ Sandbox isolation unavailable _}</h2>
+                        <p id="mr-isolation-message">{{ sandbox.message|escape }}</p>
+                    </div>
+                </section>
+            {% endif %}
+        {% endwith %}
+    {% endif %}
     <header class="mr-heading">
         <div><p class="mr-eyebrow">{_ PROCESSING OPERATIONS _}</p><h1>{_ Queue overview _}</h1>
-            <p>{_ Sandboxed media processing and result delivery _}</p></div>
+            <p>{_ Media processing and result delivery _}</p></div>
         <div class="mr-refresh"><p id="mr-freshness" role="status" aria-live="polite">{_ Connecting… _}</p>
             <button id="mr-refresh" type="button">{_ Refresh now _}</button>
             <label><input id="mr-live" type="checkbox" checked> {_ Auto-refresh every 10 seconds _}</label></div>
     </header>
+    {% if m.acl.user %}
+        {% with m.mediarunner.sandbox as sandbox %}
+            {% if sandbox %}
+                <p id="mr-sandbox" class="mr-alert mr-sandbox" role="status" aria-live="polite" data-state="{{ sandbox.state|escape }}"{% if sandbox.state == 'unsupported' or sandbox.state == 'error' %} hidden{% endif %}>{{ sandbox.message|escape }}</p>
+            {% endif %}
+        {% endwith %}
+    {% endif %}
     <p id="mr-error" class="mr-alert" role="alert" hidden>{_ Updates are unavailable. Last received data remains visible. _}</p>
     <section class="mr-metrics" aria-label="{_ Queue status _}">
         <article><h2>{_ Waiting _}</h2><strong id="mr-queued">—</strong><p>{_ Jobs ready to process _}</p></article>
@@ -66,4 +92,5 @@
     </div>
 </main>
 {% endblock %}
+
 {% block js_extra %}{% lib "js/mediarunner.js" %}{% endblock %}

@@ -1,0 +1,713 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+# NB: Consider using poEdit <http://poedit.sourceforge.net>
+#
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"POT-Creation-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:17
+msgid ""
+"Actions"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:10
+#: mediarunner/src/mediarunner.erl:85
+msgid ""
+"Add website / consumer"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:76
+msgid ""
+"All jobs"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:80
+msgid ""
+"Attempts"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:39
+msgid ""
+"Auto-refresh every 10 seconds"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:91
+msgid ""
+"Auto-refresh paused"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:88
+msgid ""
+"Awaiting processing"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:71
+msgid ""
+"Cache capacity used"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:17
+msgid ""
+"Cache now"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:90
+msgid ""
+"Cached result"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:78
+msgid ""
+"Callback pending"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_delete.tpl:8
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_edit.tpl:14
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_new.tpl:11
+msgid ""
+"Cancel"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_key.tpl:15
+msgid ""
+"Close"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:30
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:52
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:61
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:77
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:86
+msgid ""
+"Completed"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:57
+msgid ""
+"Completed jobs per hour (UTC)"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:37
+msgid ""
+"Connecting…"
+msgstr ""
+""
+
+#: mediarunner/src/mediarunner.erl:93
+msgid ""
+"Consumer created"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:2
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:8
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:12
+msgid ""
+"Consumers"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_key.tpl:9
+msgid ""
+"Copy key"
+msgstr ""
+""
+
+#: mediarunner/src/mediarunner.erl:136
+msgid ""
+"Could not change the consumer. Check your permissions and try again."
+msgstr ""
+""
+
+#: mediarunner/src/mediarunner.erl:101
+msgid ""
+"Could not create the consumer. Please try again."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_new.tpl:4
+msgid ""
+"Create a separate user and OAuth2 key for a website that uses this media "
+"runner."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_new.tpl:12
+msgid ""
+"Create consumer"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:80
+msgid ""
+"Created"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:43
+msgid ""
+"Delete"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_delete.tpl:9
+#: mediarunner/src/mediarunner.erl:106
+msgid ""
+"Delete consumer"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_delete.tpl:5
+msgid ""
+"Delete this consumer and revoke all its OAuth2 keys? Its dedicated user "
+"is also removed unless another OAuth2 app or key uses it."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:88
+msgid ""
+"Delivered"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:80
+msgid ""
+"Delivery"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:23
+msgid ""
+"Disabled"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:80
+msgid ""
+"Duration"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:23
+msgid ""
+"Enabled"
+msgstr ""
+""
+
+#: mediarunner/src/mediarunner.erl:97
+#: mediarunner/src/mediarunner.erl:116
+msgid ""
+"Enter a name of 1 to 128 characters."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_delete.tpl:6
+msgid ""
+"Existing jobs and cached files remain until their normal cleanup. This "
+"cannot be undone."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:89
+msgid ""
+"Expired"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:31
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:61
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:86
+msgid ""
+"Failed"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:65
+msgid ""
+"Failed callbacks retry automatically until the job deadline or retry "
+"limit."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:59
+msgid ""
+"Failed jobs per hour (UTC)"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:34
+msgid ""
+"Failed or expired callbacks"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_edit.tpl:10
+msgid ""
+"Generate a new OAuth2 key"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_edit.tpl:12
+msgid ""
+"Generating a new key immediately revokes all existing keys for this "
+"consumer. Copy the new key to the client website after saving."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:61
+msgid ""
+"Hour (UTC)"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:52
+msgid ""
+"In the last 24 hours"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:80
+msgid ""
+"Job"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:13
+msgid ""
+"Job totals include retained history and continue accumulating after job "
+"cleanup. Processing time is elapsed execution time, excluding cache hits. "
+"Queue and cache figures show current usage."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:17
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:74
+msgid ""
+"Jobs"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:50
+msgid ""
+"Jobs ready to process"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:56
+msgid ""
+"Last 24 hours · jobs per hour"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:15
+msgid ""
+"Log out"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:10
+msgid ""
+"Main navigation"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:68
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:69
+msgid ""
+"Media cache"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:36
+msgid ""
+"Media processing and result delivery"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:3
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:11
+msgid ""
+"Media runner"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:17
+msgid ""
+"Name"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:53
+msgid ""
+"Needs attention"
+msgstr ""
+""
+
+#: mediarunner/src/mediarunner.erl:111
+msgid ""
+"New OAuth2 key"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:47
+msgid ""
+"No consumers yet. Add a website to create its first OAuth2 key."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:81
+msgid ""
+"No jobs match this view."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:13
+msgid ""
+"OAuth2 clients"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_key.tpl:5
+msgid ""
+"OAuth2 key"
+msgstr ""
+""
+
+#: mediarunner/src/support/mediarunner_sandbox.erl:49
+msgid ""
+"OS sandbox available. Media jobs run with sandbox isolation."
+msgstr ""
+""
+
+#: mediarunner/src/support/mediarunner_sandbox.erl:52
+msgid ""
+"OS sandbox status has not been checked yet."
+msgstr ""
+""
+
+#: mediarunner/src/support/mediarunner_sandbox.erl:50
+msgid ""
+"OS sandbox unsupported. Media jobs run without sandbox isolation."
+msgstr ""
+""
+
+#: mediarunner/src/mediarunner.erl:88
+#: mediarunner/src/mediarunner.erl:99
+msgid ""
+"Only administrators can add consumers."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:35
+msgid ""
+"PROCESSING OPERATIONS"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:87
+msgid ""
+"Pending"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:63
+msgid ""
+"Pending callbacks and outcomes from the last 24 hours"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:78
+msgid ""
+"Processing or delivery failed"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:53
+msgid ""
+"Processing or delivery failures, last 24 hours"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:56
+msgid ""
+"Processing throughput"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:33
+msgid ""
+"Processing time (seconds)"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:80
+msgid ""
+"Processor"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:17
+msgid ""
+"Queue now"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:35
+msgid ""
+"Queue overview"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:49
+msgid ""
+"Queue status"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:38
+msgid ""
+"Refresh now"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:63
+msgid ""
+"Result delivery"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:32
+msgid ""
+"Result-cache hits"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:51
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:77
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:85
+msgid ""
+"Running"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:27
+msgid ""
+"Sandbox isolation unavailable"
+msgstr ""
+""
+
+#: mediarunner/src/support/mediarunner_sandbox.erl:51
+msgid ""
+"Sandbox setup failed. Media processing is blocked; check the server logs."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_edit.tpl:15
+msgid ""
+"Save"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_key.tpl:11
+msgid ""
+"Save this key securely. It is only shown here once."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:87
+msgid ""
+"Sending"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:75
+msgid ""
+"Show"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:14
+msgid ""
+"Site administration"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:69
+msgid ""
+"Sources and successful results · least recently used entries are evicted "
+"first"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:28
+msgid ""
+"Statistics"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:17
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:80
+msgid ""
+"Status"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_key.tpl:3
+msgid ""
+"The new user can submit media jobs and access its own cached files. It "
+"has no administration permissions."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:74
+msgid ""
+"Up to 100 jobs · active jobs first · history retained for 7 days"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:42
+msgid ""
+"Update"
+msgstr ""
+""
+
+#: mediarunner/src/mediarunner.erl:104
+msgid ""
+"Update consumer"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:89
+msgid ""
+"Updated"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:48
+msgid ""
+"Updates are unavailable. Last received data remains visible."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_key.tpl:12
+msgid ""
+"Use this key for"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:17
+msgid ""
+"User"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:61
+msgid ""
+"View chart data"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:50
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:76
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:85
+msgid ""
+"Waiting"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:84
+msgid ""
+"Waiting for capacity"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_edit.tpl:5
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_new.tpl:6
+msgid ""
+"Website / consumer name"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:8
+msgid ""
+"Websites using this media runner. Each consumer has its own user and "
+"media cache."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:70
+msgid ""
+"cached items"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:38
+msgid ""
+"callbacks pending"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:39
+msgid ""
+"files"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/_dialog_mediarunner_consumer_key.tpl:12
+msgid ""
+"on the client website. You can revoke it in the OAuth2 clients "
+"administration."
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:38
+msgid ""
+"running"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:26
+msgid ""
+"submitted"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_consumers.tpl:38
+msgid ""
+"waiting"
+msgstr ""
+""
+
+#: mediarunner/priv/templates/mediarunner_dashboard.tpl:51
+msgid ""
+"worker slots"
+msgstr ""
+""

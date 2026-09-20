@@ -1,6 +1,12 @@
 [
-    {mediarunner_dashboard, [], controller_admin,
+    {mediarunner_capabilities, ["media-runner", "jobs", "capabilities"], controller_mediarunner_capabilities, []},
+    {mediarunner_consumers, ["consumers"], controller_admin,
+        [{template, "mediarunner_consumers.tpl"}, {acl_module, mod_admin_config}]},
+    {home, [], controller_admin,
         [{template, "mediarunner_dashboard.tpl"}, {acl_module, mediarunner}]},
+    {mediarunner_result, ["media-runner", "jobs", "results", hash], controller_mediarunner_result, []},
+    {mediarunner_receipt, ["media-runner", "jobs", id, "results-received"], controller_mediarunner_result, [{receipt, true}]},
+    {mediarunner_file, ["media-runner", "jobs", "files", hash], controller_mediarunner_file, []},
     {mediarunner_jobs, ["media-runner", "jobs"], controller_mediarunner_jobs,
         []}
 ].

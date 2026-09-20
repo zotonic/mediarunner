@@ -42,7 +42,7 @@ queries. Single active queue coordinator per site database.
 -spec install(z:context()) -> ok.
 install(Context) ->
     z_db:q(
-        "create table mediarunner_job (\n"
+        "create table if not exists mediarunner_job (\n"
         "        id varchar(64) primary key,\n"
         "        owner_id integer not null,\n"
         "        profile varchar(32) not null,\n"
@@ -60,22 +60,24 @@ install(Context) ->
         "        expires bigint not null,\n"
         "        attempts integer not null default 0,\n"
         "        next_attempt bigint not null default 0,\n"
+        "        cache_hit boolean not null default false,\n"
         "        error varchar(80)\n"
         "    )",
         Context
     ),
-    z_db:q("create index mediarunner_job_queue on mediarunner_job(status, created)", Context),
+    z_db:q("create index if not exists mediarunner_job_queue on mediarunner_job(status, created)", Context),
     z_db:q(
-        "create index mediarunner_job_delivery on mediarunner_job(delivery, next_attempt)", Context
+        "create index if not exists mediarunner_job_delivery on mediarunner_job(delivery, next_attempt)", Context
     ),
-    install_cache(Context).
-
--spec install_cache(z:context()) -> ok.
-install_cache(Context) ->
     z_db:q(
         "alter table mediarunner_job add column if not exists cache_hit boolean not null default false",
         Context
     ),
+    ok = install_cache(Context),
+    mediarunner_statistics:install(Context).
+
+-spec install_cache(z:context()) -> ok.
+install_cache(Context) ->
     z_db:q(
         "create table if not exists mediarunner_cache (\n"
         "        owner_id integer not null, kind varchar(8) not null, hash varchar(64) not null,\n"
@@ -83,6 +85,13 @@ install_cache(Context) ->
         "        primary key (owner_id,kind,hash))",
         Context
     ),
+    %% Source bytes live on disk; PostgreSQL holds metadata and upload reservations.
+    z_db:q("alter table mediarunner_cache add column if not exists path text", Context),
+    z_db:q("alter table mediarunner_cache add column if not exists complete boolean not null default true", Context),
+    z_db:q("alter table mediarunner_cache add column if not exists upload_token varchar(64)", Context),
+    z_db:q("alter table mediarunner_cache add column if not exists upload_expires bigint", Context),
+    z_db:q("alter table mediarunner_cache add column if not exists upload_started boolean not null default false", Context),
+    z_db:q("create index if not exists mediarunner_cache_path on mediarunner_cache(path) where path is not null", Context),
     z_db:q("create index if not exists mediarunner_cache_lru on mediarunner_cache(used)", Context),
     z_db:q(
         "create table if not exists mediarunner_job_file (\n"
@@ -107,16 +116,13 @@ enqueue(Job, Owner, Context) ->
         [_] ->
             {error, conflict};
         [] ->
-            [{Count, Size}] = z_db:q(
-                "select count(*), coalesce(sum(octet_length(payload) +\n"
-                "                coalesce(octet_length(result),0)),0) from mediarunner_job where payload is not null",
-                Context
-            ),
-            Max = setting(mediarunner_queue_limit, 100, Context),
+            {Count, Used} = queue_usage(Context),
+            Max = setting(mediarunner_queue_limit, 1000, Context),
             Budget = setting(mediarunner_storage_limit, 1073741824, Context),
-            %% Reserve one maximum envelope per active job, including future output.
-            Reserve = (Count + 1) * z_media_runner_protocol:body_limit(),
-            case Count < Max andalso max(Reserve, Size + byte_size(Payload)) =< Budget of
+            %% Waiting jobs consume only their metadata. Leave room for one more
+            %% execution so a full queue cannot prevent its own workers starting.
+            Required = Used + byte_size(Payload) + z_media_runner_protocol:callback_limit(),
+            case Count < Max andalso Required =< Budget of
                 false ->
                     {error, full};
                 true ->
@@ -154,11 +160,7 @@ enqueue(Job, Owner, Context) ->
 
 -spec recover(z:context()) -> ok.
 recover(Context) ->
-    z_db:q(
-        "delete from mediarunner_job_file where job_id in\n"
-        "        (select id from mediarunner_job where status not in ('queued','starting','running'))",
-        Context
-    ),
+    %% Completed jobs retain their output pins across restarts until receipt or expiry.
     z_db:q(
         "update mediarunner_job set status='queued', started=null where status in ('starting','running')",
         Context
@@ -181,6 +183,25 @@ next(deliver, Context) ->
         {ok, []} -> none
     end;
 next(run, Context) ->
+    {_Count, Used} = queue_usage(Context),
+    Budget = setting(mediarunner_storage_limit, 1073741824, Context),
+    case Used + z_media_runner_protocol:callback_limit() =< Budget of
+        true -> next_run(Context);
+        false -> none
+    end.
+
+%% All admissions and dispatches run through the single queue coordinator.
+%% Starting/running jobs reserve their maximum result until result/4 replaces
+%% that reservation with the actual stored callback envelope.
+queue_usage(Context) ->
+    [{Count, Bytes, Active}] = z_db:q(
+        "select count(*), coalesce(sum(octet_length(payload) + "
+        "coalesce(octet_length(result),0)),0), "
+        "count(*) filter (where status in ('starting','running')) "
+        "from mediarunner_job where payload is not null", Context),
+    {Count, Bytes + Active * z_media_runner_protocol:callback_limit()}.
+
+next_run(Context) ->
     case
         z_db:qmap(
             "update mediarunner_job set status='starting'\n"
@@ -215,13 +236,16 @@ result(Id, Result, Cached, Context) ->
             #{<<"status">> := <<"ok">>} -> {<<"completed">>, undefined};
             #{<<"error">> := Why} -> {<<"failed">>, Why}
         end,
-    z_db:q(
-        "update mediarunner_job set status=$2,result=$3,error=$4,finished=$5,\n"
-        "        delivery='pending',next_attempt=$5,payload='{}',cache_hit=$6 where id=$1",
-        [Id, Status, z_json:encode(Result), Error, now(), Cached],
-        Context
-    ),
-    mediarunner_cache:release(Id, Context).
+    %% Publish the callback and replace input pins in the same transaction.
+    ok = z_db:transaction(fun(Ctx) ->
+        ok = mediarunner_cache:release(Id, Ctx),
+        ok = mediarunner_cache:pin(Id, #{<<"files">> => maps:get(<<"files">>, Result, [])}, Ctx),
+        1 = z_db:q(
+            "update mediarunner_job set status=$2,result=$3,error=$4,finished=$5,"
+            "delivery='pending',next_attempt=$5,payload='{}',cache_hit=$6 where id=$1",
+            [Id, Status, z_json:encode(Result), Error, now(), Cached], Ctx),
+        ok
+    end, Context).
 
 -spec delivered(binary(), term(), z:context()) -> ok.
 delivered(Id, {ok, Code}, Context) when Code >= 200, Code < 300 ->
@@ -302,17 +326,16 @@ snapshot(Filter, Context) ->
         updated => now(),
         workers => maps:get(workers, capacity(Context)),
         capacity => capacity(Context),
-        queue_limit => setting(mediarunner_queue_limit, 100, Context),
+        queue_limit => setting(mediarunner_queue_limit, 1000, Context),
         cache => mediarunner_cache:stats(Context)
     }.
 
 -spec cleanup(z:context()) -> ok.
 cleanup(Context) ->
-    z_db:q(
-        "delete from mediarunner_job where created < $1 and payload is null",
-        [now() - 604800],
-        Context
-    ),
+    z_db:q("delete from mediarunner_job_file where job_id in "
+        "(select id from mediarunner_job where finished < $1)",
+        [now() - setting(mediarunner_result_retention, 86400, Context)], Context),
+    ok = mediarunner_statistics:archive(now() - 604800, Context),
     ok.
 capacity(Context) ->
     case m_site:get(mediarunner_capacity, Context) of

@@ -34,7 +34,21 @@
             const row = node("tr", ""); [new Date(h.hour*1000).toISOString().slice(0,16).replace("T", " "), h.completed, h.failed].forEach(v => row.append(node("td", v))); return row;
         }));
     };
+    const renderSandbox = sandbox => {
+        const status = el("sandbox");
+        const alarm = el("isolation-alarm");
+        if (!status || !alarm) return;
+        const unavailable = ["unsupported", "error"].includes(sandbox.state);
+        const message = el("isolation-message");
+        // Avoid announcing an unchanged alarm on every background refresh.
+        if (message.textContent !== sandbox.message) message.textContent = sandbox.message;
+        if (status.textContent !== sandbox.message) status.textContent = sandbox.message;
+        status.dataset.state = sandbox.state;
+        status.hidden = unavailable;
+        alarm.hidden = !unavailable;
+    };
     const render = data => {
+        renderSandbox(data.sandbox);
         ["queued", "running", "completed"].forEach(k => text(k, count(data.counts, "status", k)));
         text("workers", data.workers);
         text("attention", count(data.counts, "status", "failed") + count(data.delivery, "delivery", "failed"));

@@ -23,7 +23,9 @@
 Dashboard snapshots, restricted to logged-in users with use/mediarunner permission. Never
 returns commands, input/output files, callback URLs or credentials.
 ").
+
 -behaviour(zotonic_model).
+
 -export([m_get/3]).
 
 -spec m_get(list(), zotonic_model:opt_msg(), z:context()) -> zotonic_model:return().
@@ -36,9 +38,15 @@ m_get([<<"status">> | Rest], Msg, Context) ->
                     _ -> <<>>
                 end,
             Snapshot = mediarunner_store:snapshot(Filter, Context),
-            {ok, {Snapshot#{charts => mediarunner_charts:render(Snapshot, Context)}, Rest}};
+            {ok, {Snapshot#{charts => mediarunner_charts:render(Snapshot, Context),
+                sandbox => mediarunner_sandbox:status(Context)}, Rest}};
         false ->
             {error, eacces}
+    end;
+m_get([<<"sandbox">> | Rest], _Msg, Context) ->
+    case z_auth:is_auth(Context) andalso z_acl:is_allowed(use, mediarunner, Context) of
+        true -> {ok, {mediarunner_sandbox:status(Context), Rest}};
+        false -> {error, eacces}
     end;
 m_get(_, _, _) ->
     {error, unknown_path}.

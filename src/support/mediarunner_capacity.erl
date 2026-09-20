@@ -43,7 +43,11 @@ snapshot(Context) ->
     #{workers => Limit, cores => Cores, available_memory => Available, memory_per_worker => Budget}.
 
 -spec workers(pos_integer(), non_neg_integer(), pos_integer()) -> pos_integer().
-workers(Cores, Available, PerWorker) ->
+workers(Cores, Available, PerWorker) when
+    is_integer(Cores), Cores > 0,
+    is_integer(Available), Available >= 0,
+    is_integer(PerWorker), PerWorker > 0
+->
     max(1, min(32, min(max(1, Cores - 1), Available * 3 div 4 div PerWorker))).
 
 -spec queue(z:context()) -> term().
@@ -85,6 +89,11 @@ available_memory() ->
         Bytes when Host =:= 0 -> Bytes;
         Bytes -> min(Host, Bytes)
     end.
+
+%% Container memory limits are detected through Linux cgroups (v2, then v1).
+%% On other systems, or when these files are unavailable, return undefined so
+%% available_memory/0 uses host memory reported by memsup. Unknown host memory
+%% falls back to one worker.
 memory_quota() ->
     case remaining("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current") of
         undefined ->
@@ -95,6 +104,7 @@ memory_quota() ->
         N ->
             N
     end.
+
 remaining(LimitFile, UsedFile) ->
     case {integer_file(LimitFile), integer_file(UsedFile)} of
         {Limit, Used} when is_integer(Limit), is_integer(Used), Limit < 1152921504606846976 ->
@@ -102,6 +112,7 @@ remaining(LimitFile, UsedFile) ->
         _ ->
             undefined
     end.
+
 integer_file(Path) ->
     try
         {ok, Data} = file:read_file(Path),
@@ -109,6 +120,7 @@ integer_file(Path) ->
     catch
         _:_ -> undefined
     end.
+
 cpu_quota() ->
     try
         {ok, Data} = file:read_file("/sys/fs/cgroup/cpu.max"),

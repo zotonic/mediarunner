@@ -19,10 +19,9 @@
 
 -module(mediarunner_integration_tests).
 
--moduledoc("
-Explicit integration test for a disposable mediarunner site on localhost:18443. Never run
-against a production site/database.
-").
+-moduledoc "\n"
+"Explicit integration test for a disposable mediarunner site on localhost:18443. Never run\n"
+"against a production site/database.\n".
 -export([run/0, ssl_options/2]).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -51,9 +50,9 @@ run() ->
     ),
     {ok, ReadOnly} = m_oauth2:encode_bearer_token(ReadOnlyId, 3600, Context),
     ok = z_notifier:observe(ssl_options, {?MODULE, ssl_options}, self(), Context),
-    Cert = "/tmp/zmr-tls/ca.crt",
+    Cert = tls_path("ca.crt"),
     Settings = [
-        {media_runner_url, Url},
+        {media_runner_hostname, <<"localhost:18443">>},
         {media_runner_oauth2_key, Token},
         {media_runner_cacertfile, Cert},
         {media_runner_wait_timeout, 10000},
@@ -64,8 +63,21 @@ run() ->
     lists:foreach(fun({K, V}) -> application:set_env(zotonic, K, V) end, Settings),
     application:set_env(mediarunner, mediarunner_callback_urls, [Callback]),
     try
-        ?assertEqual(Callback, z_dispatcher:url_for(media_runner_callback, [{absolute_url, true}], Context)),
-        ?assertEqual({error, media_runner_configuration}, z_exec:run(file, <<"printf no-site">>, #{})),
+        development_tls(Url, Token),
+        ?assertEqual({ok, 401}, z_media_runner_protocol:post(<<Url/binary, "/capabilities">>, <<"invalid">>, #{})),
+        ?assertEqual({ok, 403}, z_media_runner_protocol:post(<<Url/binary, "/capabilities">>, ReadOnly, #{})),
+        z_media_imagemagick:clear_cache(),
+        LocalImageMagick = z_media_imagemagick:local(),
+        RemoteImageMagick = z_media_imagemagick:selected(),
+        ?assertEqual(true, maps:get(available, RemoteImageMagick)),
+        ?assertEqual(maps:get(version, LocalImageMagick), maps:get(version, RemoteImageMagick)),
+        ?assertEqual(maps:get(legacy, LocalImageMagick), z_media_preview:is_legacy_imagemagick()),
+        ?assertEqual(
+            Callback, z_dispatcher:url_for(media_runner_callback, [{absolute_url, true}], Context)
+        ),
+        ?assertEqual(
+            {error, media_runner_configuration}, z_exec:run(file, <<"printf no-site">>, #{})
+        ),
         ?assertEqual({ok, 401}, z_media_runner_protocol:post(Url, <<"invalid-token">>, #{})),
         ?assertEqual({ok, 403}, z_media_runner_protocol:post(Url, ReadOnly, #{})),
         ?assertEqual({ok, 400}, z_media_runner_protocol:post(Url, Token, #{})),
@@ -73,11 +85,21 @@ run() ->
             {error, eacces},
             m_mediarunner:m_get([<<"status">>], undefined, z_context:new(mediarunner))
         ),
+        mediarunner_queue_tests:run(Context),
         ?assertEqual({ok, <<"roundtrip">>}, z_exec:run(file, <<"printf roundtrip">>, #{}, Context)),
+        mediarunner_consumer_tests:run(Url, Context),
+        mediarunner_statistics_tests:run(Context),
+        upload_checks(Url, Token, ReadOnly, Context),
+        lists:foreach(fun(Mode) -> concurrent_upload(Mode, Context) end, [success, corrupt, killed]),
+        expired_upload_claim(Context),
         image_roundtrip(Context),
+        large_result(Context),
         restart_recovery(Url, Token, Callback, Context),
+        cache_isolation(Context),
         cache_checks(Context),
-        fallback(Url, Context),
+        mediarunner_cleanup_tests:run(Context),
+        sandbox_dashboard(Context),
+        fallback(Context),
         #{jobs := Jobs} = mediarunner_store:snapshot(<<>>, Context),
         ?assert(length(Jobs) >= 3),
         lists:foreach(
@@ -95,6 +117,104 @@ run() ->
         restore(mediarunner, mediarunner_callback_urls, OldCallbacks)
     end.
 
+%% The CI certificate is signed by a private CA, outside the default trust store.
+development_tls(Url, Token) ->
+    OldEnvironment = application:get_env(zotonic, environment),
+    OldCa = application:get_env(zotonic, media_runner_cacertfile),
+    try
+        application:unset_env(zotonic, media_runner_cacertfile),
+        application:set_env(zotonic, environment, production),
+        ?assertMatch({error, _}, z_media_runner_protocol:post(Url, Token, #{})),
+        application:set_env(zotonic, environment, development),
+        ?assertEqual({ok, 400}, z_media_runner_protocol:post(Url, Token, #{}))
+    after
+        restore(zotonic, environment, OldEnvironment),
+        restore(zotonic, media_runner_cacertfile, OldCa)
+    end.
+
+sandbox_dashboard(Context) ->
+    Queue = whereis(z_utils:name_for_site(mediarunner_queue, Context)),
+    ok = sys:suspend(Queue),
+    ok = meck:new(z_exec, [passthrough]),
+    try
+        ?assertEqual({error, eacces}, m_mediarunner:m_get([<<"sandbox">>], undefined, z_context:new(mediarunner))),
+        lists:foreach(fun({Probe, Expected, Text}) ->
+            ok = meck:expect(z_exec, sandbox_status, fun() -> Probe end),
+            ok = mediarunner_sandbox:refresh(Context),
+            {ok, {#{state := Expected, message := Message}, []}} = m_mediarunner:m_get([<<"sandbox">>], undefined, Context),
+            ?assertNotEqual(nomatch, binary:match(Message, Text)),
+            {Rendered, _} = z_template:render_block_to_iolist(content, "mediarunner_dashboard.tpl", [], Context),
+            Html = iolist_to_binary(Rendered),
+            ?assertNotEqual(nomatch, binary:match(Html, <<"id=\"mr-sandbox\"">>)),
+            ?assertNotEqual(nomatch, binary:match(Html, Text)),
+            {match, [AlarmAttributes]} = re:run(Html, <<"<section id=\"mr-isolation-alarm\"([^>]*)>">>, [{capture, [1], binary}]),
+            ?assertEqual(Expected =:= available, binary:match(AlarmAttributes, <<" hidden">>) =/= nomatch),
+            ?assertNotEqual(nomatch, binary:match(AlarmAttributes, <<"role=\"alert\"">>)),
+            {AlarmPos, _} = binary:match(Html, <<"id=\"mr-isolation-alarm\"">>),
+            {HeadingPos, _} = binary:match(Html, <<"class=\"mr-heading\"">>),
+            ?assert(AlarmPos < HeadingPos),
+            AnonymousHtml = iolist_to_binary(z_template:render_block(content,
+                "mediarunner_dashboard.tpl", [], z_context:new(mediarunner))),
+            ?assertEqual(nomatch, binary:match(AnonymousHtml, <<"mr-isolation-alarm">>)),
+            ?assertEqual(nomatch, binary:match(AnonymousHtml, <<"id=\"mr-sandbox\"">>))
+        end, [
+            {{ok, <<>>}, available, <<"run with sandbox isolation">>},
+            {{error, {sandbox_unsupported, {unix, freebsd}}}, unsupported, <<"run without sandbox isolation">>},
+            {{error, sandbox_helper_missing}, error, <<"processing is blocked">>}
+        ])
+    after
+        meck:unload(z_exec),
+        mediarunner_sandbox:refresh(Context),
+        sys:resume(Queue)
+    end.
+
+large_result(Context) ->
+    Frames = case os:getenv("MEDIARUNNER_TEST_RESULT_FRAMES") of
+        false -> 48;
+        N -> list_to_integer(N)
+    end,
+    Size = Frames * 1024 * 1024 * 3 div 2,
+    Output = z_convert:to_list(z_tempfile:new()) ++ ".raw",
+    OldWait = application:get_env(zotonic, media_runner_wait_timeout),
+    application:set_env(zotonic, media_runner_wait_timeout, 180000),
+    HttpOptions = z_media_runner_protocol:http_options(30000),
+    ok = meck:new(z_media_runner_protocol, [passthrough]),
+    ok = meck:expect(z_media_runner_protocol, unpack, fun(Result, Options) ->
+        ?assert(byte_size(z_json:encode(Result)) < 2048),
+        [#{<<"size">> := Size, <<"sha256">> := Hash, <<"url">> := Url} = F] = maps:get(<<"files">>, Result),
+        ?assertNot(maps:is_key(<<"data">>, F)),
+        ?assert(z_db:q1("select count(*) from mediarunner_job_file where hash=$1", [Hash], Context) > 0),
+        {ok, {{_, 401, _}, _, _}} = httpc:request(get,
+            {binary_to_list(Url), [{"authorization", "Bearer invalid"}]},
+            HttpOptions, [], zotonic),
+        ?assertEqual({error, missing}, mediarunner_cache:read(F, -1, Context)),
+        meck:passthrough([Result, Options])
+    end),
+    try
+        Command = ["ffmpeg -y -nostdin -v error -f lavfi -i color=c=black:s=1024x1024:r=25 -frames:v ",
+            integer_to_list(Frames), " -threads 1 -pix_fmt yuv420p -f rawvideo ", z_filelib:os_filename(Output)],
+        ?assertEqual({ok, <<>>}, z_exec:run(ffmpeg, Command, #{write => [Output], timeout => 180000}, Context)),
+        {ok, Size, Hash} = z_media_runner_protocol:hash_file(Output),
+        ?assertEqual(0, z_db:q1("select count(*) from mediarunner_job_file where hash=$1", [Hash], Context)),
+        ?assertEqual(0, z_db:q1("select octet_length(data) from mediarunner_cache where kind='file' and owner_id=1 and hash=$1", [Hash], Context)),
+        Hits = z_db:q1("select count(*) from mediarunner_job where profile='ffmpeg' and cache_hit", Context),
+        ok = file:delete(Output),
+        ?assertEqual({ok, <<>>}, z_exec:run(ffmpeg, Command, #{write => [Output], timeout => 180000}, Context)),
+        ?assertEqual(Hits + 1, z_db:q1("select count(*) from mediarunner_job where profile='ffmpeg' and cache_hit", Context)),
+        ?assertEqual({ok, Size, Hash}, z_media_runner_protocol:hash_file(Output)),
+        {ok, Job} = z_media_runner_protocol:pack(ffmpeg, Command, #{write => [Output], timeout => 180000}),
+        {ok, Cached} = mediarunner_cache:result(Job, 1, Context),
+        [CachedFile] = maps:get(<<"files">>, Cached),
+        {ok, {file, CachedPath}} = mediarunner_cache:read(CachedFile, 1, Context),
+        ok = file:delete(CachedPath),
+        ?assertEqual({error, missing}, mediarunner_cache:result(Job, 1, Context)),
+        io:format("Streamed and verified ~B result bytes~n", [Size])
+    after
+        meck:unload(z_media_runner_protocol),
+        restore(zotonic, media_runner_wait_timeout, OldWait),
+        file:delete(Output)
+    end.
+
 image_roundtrip(Context) ->
     Input = z_convert:to_list(z_tempfile:new()) ++ " quoted ' input.ppm",
     Output = z_convert:to_list(z_tempfile:new()) ++ ".png",
@@ -104,13 +224,19 @@ image_roundtrip(Context) ->
             {ok, _},
             z_exec:run(
                 imagemagick,
-                ["magick ", z_filelib:os_filename(Input), " ", z_filelib:os_filename(Output)],
+                [
+                    image_command(),
+                    " ",
+                    z_filelib:os_filename(Input),
+                    " ",
+                    z_filelib:os_filename(Output)
+                ],
                 #{read => [Input], write => [Output]},
                 Context
             )
         ),
         {ok, <<137, "PNG", _/binary>>} = file:read_file(Output),
-        {ok, Meta} = z_media_identify:identify_file(Input, z_context:new(mediarunner)),
+        {ok, Meta} = z_media_identify:identify_file(z_convert:to_binary(Input), z_context:new(mediarunner)),
         ?assertEqual(1, maps:get(<<"width">>, Meta)),
         ok = file:delete(Output),
         ?assertEqual(ok, z_media_preview:convert(Input, Output, [{width, 1}], Context)),
@@ -123,7 +249,7 @@ image_roundtrip(Context) ->
 restart_recovery(Url, Token, Callback, Context) ->
     Id = z_ids:id(32),
     Job = #{
-        <<"version">> => 1,
+        <<"version">> => 3,
         <<"id">> => Id,
         <<"profile">> => <<"file">>,
         <<"command">> => <<"printf recovered">>,
@@ -152,6 +278,64 @@ restart_recovery(Url, Token, Callback, Context) ->
     ),
     ?assertEqual(1, z_db:q1("select count(*) from mediarunner_job where id=$1", [Id], Context)).
 
+%% The same OAuth owner deliberately knows both cache paths. This checks the OS
+%% sandbox, independently of owner isolation or the secrecy of cache filenames.
+cache_isolation(Context) ->
+    Input = z_convert:to_list(z_tempfile:new()) ++ "-allowed.txt",
+    Other = z_convert:to_list(z_tempfile:new()) ++ "-unrelated.txt",
+    Allowed = <<"allowed-", (z_ids:id(32))/binary>>,
+    Secret = <<"secret-", (z_ids:id(32))/binary>>,
+    ok = file:write_file(Input, <<Allowed/binary, "\n">>),
+    ok = file:write_file(Other, <<Secret/binary, "\n">>),
+    try
+        lists:foreach(fun({Path, Expected}) ->
+            ?assertEqual({ok, Expected}, z_exec:run(file, read_line(Path), #{read => [Path]}, Context))
+        end, [{Input, Allowed}, {Other, Secret}]),
+        {ok, _, InputHash} = z_media_runner_protocol:hash_file(Input),
+        {ok, _, OtherHash} = z_media_runner_protocol:hash_file(Other),
+        {ok, {file, CachedInput}} = mediarunner_cache:read(#{<<"sha256">> => InputHash}, 1, Context),
+        {ok, {file, CachedOther}} = mediarunner_cache:read(#{<<"sha256">> => OtherHash}, 1, Context),
+        CacheDir = filename:dirname(CachedInput),
+        ?assertEqual(CacheDir, filename:dirname(CachedOther)),
+        ?assertEqual({ok, <<Allowed/binary, "\n">>}, file:read_file(CachedInput)),
+        ?assertEqual({ok, <<Secret/binary, "\n">>}, file:read_file(CachedOther)),
+        Options = #{read => [Input]},
+        lists:foreach(fun(Profile) ->
+            %% The declared input remains usable, but even its cached original is denied.
+            ?assertEqual({Profile, {ok, Allowed}}, {Profile, z_exec:run(Profile, read_line(Input), Options, Context)}),
+            lists:foreach(fun(Path) ->
+                Read = ["if IFS= read -r value < ", z_filelib:os_filename(Path),
+                    "; then printf leaked; else printf denied; fi"],
+                ?assertEqual({ok, <<"denied">>}, z_exec:run(Profile, Read, Options, Context))
+            end, [CachedInput, CachedOther]),
+            %% A shell glob enumerates directory entries without needing /bin/ls.
+            Glob = [z_filelib:os_filename(CacheDir), "/*"],
+            ?assertEqual({ok, <<(z_convert:to_binary(CacheDir))/binary, "/*">>},
+                z_exec:run(Profile, ["printf '%s' ", Glob], Options, Context)),
+            lists:foreach(fun(Path) ->
+                Write = ["if printf corrupted > ", z_filelib:os_filename(Path),
+                    "; then printf leaked; else printf denied; fi"],
+                ?assertEqual({ok, <<"denied">>}, z_exec:run(Profile, Write, Options, Context))
+            end, [CachedInput, CachedOther, filename:join(CacheDir, "forbidden-new-file")])
+        end, [file, imagemagick, imagemagick_pdf, ffmpeg, ffprobe]),
+        %% A declared read/write input is a copy: successful mutation must leave
+        %% both the shared cached original and unrelated entries untouched.
+        ?assertEqual({ok, <<>>}, z_exec:run(file,
+            ["printf modified > ", z_filelib:os_filename(Input)],
+            #{read => [Input], write => [Input]}, Context)),
+        ?assertEqual({ok, <<"modified">>}, file:read_file(Input)),
+        ?assertEqual({ok, <<Allowed/binary, "\n">>}, file:read_file(CachedInput)),
+        ?assertEqual({ok, <<Secret/binary, "\n">>}, file:read_file(CachedOther)),
+        ?assertNot(filelib:is_file(filename:join(CacheDir, "forbidden-new-file"))),
+        io:format("Cache content isolation verified for all five sandbox profiles.~n")
+    after
+        file:delete(Input),
+        file:delete(Other)
+    end.
+
+read_line(Path) ->
+    ["IFS= read -r value < ", z_filelib:os_filename(Path), "; printf '%s' \"$value\""].
+
 cache_checks(Context) ->
     Queue = whereis(z_utils:name_for_site(mediarunner_queue, Context)),
     ok = sys:suspend(Queue),
@@ -162,14 +346,14 @@ cache_checks(Context) ->
             <<"id">> => 1,
             <<"write">> => false,
             <<"sha256">> => binary:encode_hex(crypto:hash(sha256, Data), lowercase),
-            <<"data">> => base64:encode(Data)
+            <<"size">> => byte_size(Data)
         }
     end,
     A = File(binary:copy(<<"A">>, 100)),
     B = File(binary:copy(<<"B">>, 100)),
     Id = z_ids:id(32),
     Job = #{
-        <<"version">> => 1,
+        <<"version">> => 3,
         <<"profile">> => <<"file">>,
         <<"command">> => <<"printf cache-test">>,
         <<"files">> => [A],
@@ -180,14 +364,23 @@ cache_checks(Context) ->
         <<"expires">> => erlang:system_time(second) + 60
     },
     try
+        %% Disposable test schema: isolate the tiny LRU budget from prior jobs.
+        lists:foreach(fun
+            ({undefined}) -> ok;
+            ({P}) -> file:delete(P)
+        end, z_db:q("delete from mediarunner_cache returning path", Context)),
         application:set_env(mediarunner, mediarunner_cache_max_bytes, 150),
+        ok = cache_upload(A, binary:copy(<<"A">>, 100), Owner, Context),
         {ok, Id} = mediarunner_store:enqueue(Job, Owner, Context),
+        z_db:q("update mediarunner_cache set used=0 where owner_id=$1", [Owner], Context),
         ?assertEqual(
-            {error, full}, mediarunner_cache:prepare(Job#{<<"files">> => [B]}, Owner, Context)
+            {error, full}, mediarunner_cache:upload({reserve, maps:get(<<"sha256">>, B), 100}, Owner, Context)
         ),
         ?assertMatch({ok, _}, mediarunner_cache:read(A, Owner, Context)),
         mediarunner_cache:release(Id, Context),
-        ok = mediarunner_cache:prepare(Job#{<<"files">> => [B]}, Owner, Context),
+        %% Recent uploads have a one-hour admission lease in addition to job pins.
+        z_db:q("update mediarunner_cache set used=0 where owner_id=$1", [Owner], Context),
+        ok = cache_upload(B, binary:copy(<<"B">>, 100), Owner, Context),
         ?assertEqual({error, missing}, mediarunner_cache:read(A, Owner, Context)),
         ?assertEqual({error, missing}, mediarunner_cache:read(B, Owner + 1, Context)),
         ?assertEqual(
@@ -222,31 +415,242 @@ cache_checks(Context) ->
         ),
         ?assertEqual({error, missing}, mediarunner_cache:result(Job, Owner + 1, Context)),
         ?assertEqual(
-            {error, invalid_cache_file},
-            mediarunner_cache:prepare(
-                Job#{<<"files">> => [A#{<<"data">> => base64:encode(<<"tampered">>)}]},
-                Owner,
-                Context
-            )
+            {error, invalid_job},
+            z_media_runner_protocol:validate(Job#{<<"files">> => [A#{<<"data">> => <<"tampered">>}]})
         )
     after
         z_db:q("delete from mediarunner_job where id=$1", [Id], Context),
-        z_db:q("delete from mediarunner_cache where owner_id=$1", [Owner], Context),
+        lists:foreach(fun
+            ({undefined}) -> ok;
+            ({P}) -> file:delete(P)
+        end, z_db:q("delete from mediarunner_cache where owner_id=$1 returning path", [Owner], Context)),
         restore(mediarunner, mediarunner_cache_max_bytes, OldLimit),
         sys:resume(Queue)
     end.
 
-fallback(Url, Context) ->
-    application:set_env(zotonic, media_runner_url, <<"https://localhost:18999/jobs">>),
+cache_upload(F, Data, Owner, Context) ->
+    H = maps:get(<<"sha256">>, F),
+    {ok, Token} = mediarunner_cache:upload({reserve, H, byte_size(Data)}, Owner, Context),
+    {ok, Path, _, _} = mediarunner_cache:upload({claim, H, Token}, Owner, Context),
+    ok = file:write_file(Path, Data),
+    mediarunner_cache:upload({complete, H, Token}, Owner, Context).
+
+upload_checks(Url, Token, ReadOnly, Context) ->
+    Path = z_convert:to_list(z_tempfile:new()) ++ "-large-source.bin",
+    Size = case os:getenv("MEDIARUNNER_TEST_UPLOAD_BYTES") of
+        false -> 70 * 1024 * 1024;
+        N -> list_to_integer(N)
+    end,
+    {ok, Fd} = file:open(Path, [write, raw, binary]),
+    ok = file:write(Fd, crypto:strong_rand_bytes(32)),
+    {ok, _} = file:position(Fd, Size - 1),
+    ok = file:write(Fd, <<42>>),
+    ok = file:close(Fd),
+    {ok, Size, Hash} = z_media_runner_protocol:hash_file(Path),
+    FileUrl = <<Url/binary, "/files/", Hash/binary>>,
+    try
+        ?assertEqual({ok, 401}, z_media_runner_protocol:post(FileUrl, <<"invalid">>, #{<<"size">> => Size})),
+        ?assertEqual({ok, 403}, z_media_runner_protocol:post(FileUrl, ReadOnly, #{<<"size">> => Size})),
+        {ok, 201, Body} = z_media_runner_protocol:request(FileUrl, Token, #{<<"size">> => Size}),
+        #{<<"upload_token">> := Lease} = z_json:decode(Body),
+        %% Another job cannot upload the same hash while this reservation is live.
+        ?assertEqual({ok, 409}, z_media_runner_protocol:post(FileUrl, Token, #{<<"size">> => Size})),
+        ?assertEqual({error, missing}, mediarunner_cache:read(#{<<"sha256">> => Hash}, 1, Context)),
+        ?assertEqual({ok, 204}, z_media_runner_protocol:upload(FileUrl, Token, Lease, Path, Size)),
+        {ok, {file, Cached}} = mediarunner_cache:read(#{<<"sha256">> => Hash}, 1, Context),
+        ?assertEqual({ok, Size, Hash}, z_media_runner_protocol:hash_file(Cached)),
+        ?assertEqual(0, z_db:q1("select octet_length(data) from mediarunner_cache where owner_id=1 and hash=$1",
+            [Hash], Context)),
+        ?assertEqual({ok, 200}, z_media_runner_protocol:post(FileUrl, Token, #{<<"size">> => Size})),
+        %% Both commands refer to the cached hash; source bytes are never in the job.
+        Options = #{read => [Path]},
+        ok = meck:new(z_media_runner_protocol, [passthrough, no_link]),
+        try
+            ?assertEqual({ok, <<"first">>}, z_exec:run(file, "printf first", Options, Context)),
+            ?assertEqual({ok, <<"second">>}, z_exec:run(file, "printf second", Options, Context)),
+            ?assertEqual(0, meck:num_calls(z_media_runner_protocol, upload, '_'))
+        after
+            meck:unload(z_media_runner_protocol)
+        end,
+        ?assertEqual({error, missing}, mediarunner_cache:read(#{<<"sha256">> => Hash}, 2, Context)),
+        %% A body whose bytes do not match its reserved hash is never published.
+        BadHash = binary:encode_hex(crypto:hash(sha256, <<"different bytes">>), lowercase),
+        BadUrl = <<Url/binary, "/files/", BadHash/binary>>,
+        {ok, 201, BadBody} = z_media_runner_protocol:request(BadUrl, Token, #{<<"size">> => 1}),
+        #{<<"upload_token">> := BadLease} = z_json:decode(BadBody),
+        ?assertEqual({ok, 400}, z_media_runner_protocol:upload(BadUrl, Token, BadLease, Path, 1)),
+        ?assertEqual({error, missing}, mediarunner_cache:read(#{<<"sha256">> => BadHash}, 1, Context)),
+        ?assertEqual(0, z_db:q1("select count(*) from mediarunner_cache where hash=$1", [BadHash], Context)),
+        upload_expiry(Context),
+        io:format("Streaming upload verified for ~p bytes.~n", [Size])
+    after
+        file:delete(Path)
+    end.
+
+%% Use real client jobs and HTTP requests. Pause the first PUT after its claim,
+%% then wait until the second client observes 409 before allowing any progress.
+concurrent_upload(Mode, Context) ->
+    Parent = self(),
+    Path = z_convert:to_list(z_tempfile:new()) ++ "-race.bin",
+    BadPath = Path ++ ".bad",
+    Data = crypto:strong_rand_bytes(4096),
+    ok = file:write_file(Path, Data),
+    ok = file:write_file(BadPath, binary:copy(<<0>>, byte_size(Data))),
+    State = ets:new(upload_race, [public, set]),
+    ets:insert(State, {attempts, 0}),
+    Modules = [z_media_runner_protocol, mediarunner_queue],
+    lists:foreach(fun(M) -> ok = meck:new(M, [passthrough, no_link]) end, Modules),
+    try
+        ok = meck:expect(z_media_runner_protocol, request, fun(U, T, Payload) ->
+            Reply = meck:passthrough([U, T, Payload]),
+            case Reply of
+                {ok, 409, _} -> Parent ! {race_waiting, self()};
+                _ -> ok
+            end,
+            Reply
+        end),
+        ok = meck:expect(z_media_runner_protocol, upload, fun(U, T, Lease, File, Size) ->
+            Attempt = ets:update_counter(State, attempts, 1),
+            Source = case {Mode, Attempt} of
+                {corrupt, 1} -> BadPath;
+                _ -> File
+            end,
+            meck:passthrough([U, T, Lease, Source, Size])
+        end),
+        ok = meck:expect(mediarunner_queue, upload, fun(Request, Owner, Ctx) ->
+            Reply = meck:passthrough([Request, Owner, Ctx]),
+            case {Request, Reply} of
+                {{claim, Hash, Lease}, {ok, Temp, _, _}} ->
+                    ets:insert(State, {{server, self()}, true}),
+                    Parent ! {race_claimed, self(), Hash, Lease, Temp},
+                    receive continue -> ok after 10000 -> error(race_barrier_timeout) end;
+                _ -> ok
+            end,
+            Reply
+        end),
+        First = start_race_job(Path, <<"printf first">>, Context, State),
+        {Server, Hash, OldLease, Temp} = race_claim(),
+        Second = start_race_job(Path, <<"printf second">>, Context, State),
+        receive {race_waiting, Second} -> ok after 5000 -> error(second_job_did_not_wait) end,
+        ?assertEqual([{attempts, 1}], ets:lookup(State, attempts)),
+        receive {race_claimed, _, _, _, _} -> error(duplicate_uploader) after 0 -> ok end,
+        case Mode of
+            killed ->
+                %% The claim is live, but an untrappable kill skips the controller's after clause.
+                ok = file:write_file(Temp, <<"partial">>),
+                exit(Server, kill);
+            _ -> Server ! continue
+        end,
+        case Mode of
+            success ->
+                ?assertEqual({ok, <<"first">>}, race_result(First));
+            _ ->
+                ?assertMatch({error, _}, race_result(First)),
+                {Successor, Hash, NewLease, NewTemp} = race_claim(),
+                ?assertNotEqual(OldLease, NewLease),
+                ?assertNotEqual(Temp, NewTemp),
+                ?assertNot(filelib:is_file(Temp)),
+                %% A delayed abort from the failed request cannot erase the new reservation.
+                ok = mediarunner_queue:upload({abort, Hash, OldLease}, 1, Context),
+                ?assertEqual(NewLease, z_db:q1(
+                    "select upload_token from mediarunner_cache where owner_id=1 and hash=$1",
+                    [Hash], Context)),
+                Successor ! continue
+        end,
+        ?assertEqual({ok, <<"second">>}, race_result(Second)),
+        Expected = case Mode of success -> 1; _ -> 2 end,
+        ?assertEqual([{attempts, Expected}], ets:lookup(State, attempts)),
+        #{uploads := Uploads} = sys:get_state(z_utils:name_for_site(mediarunner_queue, Context)),
+        ?assertNot(lists:any(fun({_, H, _}) -> H =:= Hash end, maps:values(Uploads))),
+        io:format("Concurrent upload ~p: ~p transfer attempt(s), waiting job completed.~n", [Mode, Expected])
+    after
+        lists:foreach(fun
+            ({{server, Pid}, _}) -> exit(Pid, kill);
+            ({{client, Pid}, _}) -> exit(Pid, kill);
+            (_) -> ok
+        end, ets:tab2list(State)),
+        lists:foreach(fun meck:unload/1, Modules),
+        ets:delete(State),
+        file:delete(Path),
+        file:delete(BadPath)
+    end.
+
+start_race_job(Path, Command, Context, State) ->
+    Parent = self(),
+    Pid = spawn(fun() ->
+        Result = z_exec:run(file, Command, #{read => [Path]}, Context),
+        Parent ! {race_finished, self(), Result}
+    end),
+    ets:insert(State, {{client, Pid}, true}),
+    Pid.
+
+race_claim() ->
+    receive
+        {race_claimed, Pid, Hash, Lease, Path} -> {Pid, Hash, Lease, Path}
+    after 5000 -> error(no_upload_claim)
+    end.
+
+race_result(Pid) ->
+    receive {race_finished, Pid, Result} -> Result
+    after 10000 -> error(race_job_not_finished)
+    end.
+
+%% Simulate a client delayed between POST and PUT: the stale claim must cause
+%% another reservation check, not an HTTP 409 failure of the media job.
+expired_upload_claim(Context) ->
+    Path = z_convert:to_list(z_tempfile:new()) ++ "-expired.bin",
+    ok = file:write_file(Path, crypto:strong_rand_bytes(32)),
+    Attempts = atomics:new(1, []),
+    ok = meck:new(z_media_runner_protocol, [passthrough, no_link]),
+    try
+        ok = meck:expect(z_media_runner_protocol, upload, fun(U, Token, Lease, File, Size) ->
+            case atomics:add_get(Attempts, 1, 1) of
+                1 ->
+                    1 = z_db:q("update mediarunner_cache set upload_expires=0 where upload_token=$1",
+                        [Lease], Context);
+                _ -> ok
+            end,
+            meck:passthrough([U, Token, Lease, File, Size])
+        end),
+        ?assertEqual({ok, <<"retried">>}, z_exec:run(file, "printf retried", #{read => [Path]}, Context)),
+        ?assertEqual(2, atomics:get(Attempts, 1))
+    after
+        meck:unload(z_media_runner_protocol),
+        file:delete(Path)
+    end.
+
+upload_expiry(Context) ->
+    Owner = 999997,
+    Hash = binary:encode_hex(crypto:hash(sha256, <<"partial upload">>), lowercase),
+    {ok, Token} = mediarunner_queue:upload({reserve, Hash, 14}, Owner, Context),
+    ?assertEqual({error, conflict}, mediarunner_queue:upload({claim, Hash, Token}, Owner + 1, Context)),
+    {ok, Path, 14, _} = mediarunner_queue:upload({claim, Hash, Token}, Owner, Context),
+    ?assertEqual({error, conflict}, mediarunner_queue:upload({claim, Hash, Token}, Owner, Context)),
+    ok = file:write_file(Path, <<"partial">>),
+    ?assertEqual({error, missing}, mediarunner_cache:read(#{<<"sha256">> => Hash}, Owner, Context)),
+    z_db:q("update mediarunner_cache set upload_expires=0 where owner_id=$1", [Owner], Context),
+    ok = mediarunner_cache:cleanup_uploads(false, Context),
+    ?assertNot(filelib:is_file(Path)),
+    ?assertEqual({error, conflict}, mediarunner_queue:upload({complete, Hash, Token}, Owner, Context)),
+    {ok, NewToken} = mediarunner_queue:upload({reserve, Hash, 14}, Owner, Context),
+    ?assertNotEqual(Token, NewToken),
+    %% Restart cleanup removes unclaimed reservations as well as partial files.
+    ok = mediarunner_cache:cleanup_uploads(true, Context),
+    ?assertEqual(0, z_db:q1("select count(*) from mediarunner_cache where owner_id=$1", [Owner], Context)).
+
+fallback(Context) ->
+    application:set_env(zotonic, media_runner_hostname, <<"localhost:18999">>),
     ?assertMatch(
-        {error, {media_runner_unavailable, _}}, z_exec:run(file, <<"printf fallback">>, #{}, Context)
+        {error, {media_runner_unavailable, _}},
+        z_exec:run(file, <<"printf fallback">>, #{}, Context)
     ),
     application:set_env(zotonic, media_runner_local_fallback, true),
     ?assertEqual({ok, <<"fallback">>}, z_exec:run(file, <<"printf fallback">>, #{}, Context)),
-    application:set_env(zotonic, media_runner_url, Url),
+    application:set_env(zotonic, media_runner_hostname, <<"localhost:18443">>),
     application:set_env(zotonic, media_runner_oauth2_key, <<"invalid-token">>),
     ?assertEqual(
-        {error, {media_runner_http, 401}}, z_exec:run(file, <<"printf must-not-fallback">>, #{}, Context)
+        {error, {media_runner_http, 401}},
+        z_exec:run(file, <<"printf must-not-fallback">>, #{}, Context)
     ).
 await(_, 0) ->
     error(await_timeout);
@@ -262,4 +666,18 @@ restore(App, K, undefined) -> application:unset_env(App, K);
 restore(App, K, {ok, V}) -> application:set_env(App, K, V).
 
 ssl_options(_, _) ->
-    {ok, [{certfile, "/tmp/zmr-tls/server.crt"}, {keyfile, "/tmp/zmr-tls/server.key"}]}.
+    {ok, [{certfile, tls_path("server.crt")}, {keyfile, tls_path("server.key")}]}.
+
+image_command() ->
+    case os:find_executable("magick") of
+        false -> "convert";
+        _ -> "magick"
+    end.
+
+tls_path(Name) ->
+    Dir =
+        case os:getenv("MEDIARUNNER_TEST_TLS_DIR") of
+            false -> "/tmp/zmr-tls";
+            Value -> Value
+        end,
+    filename:join(Dir, Name).

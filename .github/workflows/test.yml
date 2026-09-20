@@ -1,0 +1,87 @@
+name: Test mediarunner
+
+on:
+  # Branch work is tested through pull_request; main is tested after merging.
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      zotonic_ref:
+        description: Zotonic branch, tag or commit with media runner support
+        required: false
+        default: master
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: zotonic
+          POSTGRES_USER: zotonic
+          POSTGRES_PASSWORD: zotonic
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U zotonic -d zotonic"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Install Erlang on Ubuntu
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '28.5'
+
+      - name: Report execution platform
+        run: |
+          cat /etc/os-release
+          uname -a
+          erl -noshell -eval 'io:format("Erlang OS: ~p~n", [os:type()]), {unix, linux} = os:type(), halt().'
+
+      - name: Check out Zotonic
+        uses: actions/checkout@v7
+        with:
+          repository: zotonic/zotonic
+          ref: ${{ inputs.zotonic_ref || vars.ZOTONIC_REF || 'master' }}
+          path: zotonic
+          persist-credentials: false
+
+      - name: Install mediarunner into Zotonic
+        uses: actions/checkout@v7
+        with:
+          path: zotonic/apps_user/mediarunner
+          persist-credentials: false
+
+      - name: Install build and media tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libseccomp-dev sudo openssl \
+            imagemagick ghostscript ffmpeg file
+
+      - name: Build Zotonic and mediarunner
+        working-directory: zotonic
+        run: make
+
+      - name: Run unit and integration tests without root privileges
+        working-directory: zotonic
+        run: |
+          # The Ubuntu runner user owns both the checkout and setup-beam's OTP.
+          # Keep tests unprivileged without switching to a user that cannot
+          # traverse the runner's workspace or temporary installation paths.
+          test "$(id -u)" -ne 0
+          env SHELL=/bin/sh ZOTONIC_DBHOST=localhost ZOTONIC_SANDBOX_TESTS=1 \
+            bash apps_user/mediarunner/test/ci.sh

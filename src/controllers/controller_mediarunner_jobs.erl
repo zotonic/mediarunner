@@ -24,6 +24,7 @@ Job submission using Zotonic request authentication. mod_oauth2 handles token de
 logon; this controller requires a writable authenticated context and use/mediarunner
 permission.
 ").
+
 -export([
     allowed_methods/1,
     content_types_accepted/1,
@@ -32,9 +33,16 @@ permission.
     process/4,
     validate/2
 ]).
-allowed_methods(Context) -> {[<<"POST">>], Context}.
-content_types_accepted(Context) -> {[{<<"application">>, <<"json">>, []}], Context}.
-content_types_provided(Context) -> content_types_accepted(Context).
+
+allowed_methods(Context) ->
+    {[<<"POST">>], Context}.
+
+content_types_accepted(Context) ->
+    {[{<<"application">>, <<"json">>, []}], Context}.
+
+content_types_provided(Context) ->
+    {[{<<"application">>, <<"json">>, []}], Context}.
+
 is_authorized(Context) ->
     case z_auth:is_auth(Context) of
         false ->
@@ -47,8 +55,9 @@ is_authorized(Context) ->
                 false -> {{halt, 403}, Context}
             end
     end.
+
 process(_, _, _, Context) ->
-    {Body, Context1} = cowmachine_req:req_body(z_media_runner_protocol:body_limit(), Context),
+    {Body, Context1} = cowmachine_req:req_body(1048576, Context),
     Parsed =
         try
             z_json:decode(Body)
