@@ -47,7 +47,14 @@ prepare(#{<<"files">> := Files}, Owner, Context) ->
 upload({reserve, Hash, Size}, Owner, Context) ->
     case source_present(Owner, Hash, Context) of
         true -> {ok, present};
-        false -> reserve(Hash, Size, Owner, Context)
+        false -> reserve(Hash, Size, Owner, source, Context)
+    end;
+%% Result writers are already bounded by the worker pool. They must not compete
+%% with incoming uploads for transfer slots, but still obey cache byte/item limits.
+upload({reserve_result, Hash, Size}, Owner, Context) ->
+    case source_present(Owner, Hash, Context) of
+        true -> {ok, present};
+        false -> reserve(Hash, Size, Owner, result, Context)
     end;
 upload({claim, Hash, Token}, Owner, Context) ->
     case z_db:q(
@@ -76,7 +83,7 @@ upload({abort, Hash, Token}, Owner, Context) ->
         [Owner, Hash, Token], Context)),
     ok.
 
-reserve(Hash, Size, Owner, Context) ->
+reserve(Hash, Size, Owner, Kind, Context) ->
     Now = erlang:system_time(second),
     case z_db:q1(
         "select count(*) from mediarunner_cache where owner_id=$1 and kind='file' "
@@ -88,7 +95,7 @@ reserve(Hash, Size, Owner, Context) ->
             delete_paths(z_db:q(
                 "delete from mediarunner_cache where owner_id=$1 and kind='file' and hash=$2 returning path",
                 [Owner, Hash], Context)),
-            case upload_room(Size, Owner, Context) of
+            case admission_room(Kind, Size, Owner, Context) of
                 ok ->
                     Token = binary:encode_hex(crypto:strong_rand_bytes(32), lowercase),
                     Dir = z_path:files_subdir_ensure("mediarunner", Context),
@@ -104,6 +111,9 @@ reserve(Hash, Size, Owner, Context) ->
                 Error -> Error
             end
     end.
+
+admission_room(source, Size, Owner, Context) -> upload_room(Size, Owner, Context);
+admission_room(result, Size, Owner, Context) -> room(Size, 1, Owner, [], Context).
 
 %% Limit simultaneous upload reservations as well as their total disk footprint.
 upload_room(Size, Owner, Context) ->
@@ -271,11 +281,18 @@ room(Bytes, Items, Owner, Protected, Context) ->
 evict(_, Bytes, Items, _) when Bytes =< 0, Items =< 0 -> ok;
 evict([], _, _, _) ->
     {error, full};
-evict([{O, K, H, Size} | Rest], Bytes, Items, Context) ->
-    delete_paths(z_db:q(
-        "delete from mediarunner_cache where owner_id=$1 and kind=$2 and hash=$3 returning path",
-        [O, K, H], Context)),
-    evict(Rest, Bytes - Size, Items - 1, Context).
+evict([{O, K, H, _Size} | Rest], Bytes, Items, Context) ->
+    %% A worker may have refreshed or pinned a candidate since selection. Recheck
+    %% while deleting, and count only bytes actually removed from the cache.
+    Deleted = z_db:q(
+        "delete from mediarunner_cache c where owner_id=$1 and kind=$2 and hash=$3 "
+        "and complete and (kind <> 'file' or used < $4) "
+        "and not exists (select 1 from mediarunner_job_file p "
+        "where c.kind='file' and p.owner_id=c.owner_id and p.hash=c.hash) returning path,size",
+        [O, K, H, erlang:system_time(microsecond) - 3600000000], Context),
+    delete_paths([{Path} || {Path, _} <- Deleted]),
+    Freed = lists:sum([Size || {_, Size} <- Deleted]),
+    evict(Rest, Bytes - Freed, Items - length(Deleted), Context).
 
 -spec stats(z:context()) -> map().
 stats(Context) ->

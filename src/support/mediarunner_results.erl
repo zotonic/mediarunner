@@ -30,7 +30,7 @@ publish(Path, #{<<"sha256">> := Hash, <<"size">> := Size} = File, Id, Owner, Con
     File.
 
 persist(Path, Hash, Size, Owner, Deadline, Context) ->
-    case mediarunner_queue:upload({reserve, Hash, Size}, Owner, Context) of
+    case mediarunner_queue:upload({reserve_result, Hash, Size}, Owner, Context) of
         {ok, present} -> ok;
         {ok, Token} ->
             try

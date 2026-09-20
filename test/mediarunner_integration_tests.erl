@@ -93,6 +93,8 @@ run() ->
         lists:foreach(fun(Mode) -> concurrent_upload(Mode, Context) end, [success, corrupt, killed]),
         expired_upload_claim(Context),
         image_roundtrip(Context),
+        result_during_upload(Context),
+        mediarunner_http_tests:run(),
         large_result(Context),
         restart_recovery(Url, Token, Callback, Context),
         cache_isolation(Context),
@@ -216,7 +218,7 @@ large_result(Context) ->
     end.
 
 image_roundtrip(Context) ->
-    Input = z_convert:to_list(z_tempfile:new()) ++ " quoted ' input.ppm",
+    Input = unicode:characters_to_binary(z_convert:to_list(z_tempfile:new()) ++ " quoted ' " ++ [16#4e2d, 16#e9] ++ " input.ppm"),
     Output = z_convert:to_list(z_tempfile:new()) ++ ".png",
     ok = file:write_file(Input, <<"P3\n1 1\n255\n255 0 0\n">>),
     try
@@ -227,7 +229,7 @@ image_roundtrip(Context) ->
                 [
                     image_command(),
                     " ",
-                    z_filelib:os_filename(Input),
+                    z_filelib:os_filename(unicode:characters_to_list(Input)),
                     " ",
                     z_filelib:os_filename(Output)
                 ],
@@ -236,7 +238,7 @@ image_roundtrip(Context) ->
             )
         ),
         {ok, <<137, "PNG", _/binary>>} = file:read_file(Output),
-        {ok, Meta} = z_media_identify:identify_file(z_convert:to_binary(Input), z_context:new(mediarunner)),
+        {ok, Meta} = z_media_identify:identify_file(unicode:characters_to_binary(Input), z_context:new(mediarunner)),
         ?assertEqual(1, maps:get(<<"width">>, Meta)),
         ok = file:delete(Output),
         ?assertEqual(ok, z_media_preview:convert(Input, Output, [{width, 1}], Context)),
@@ -310,8 +312,8 @@ cache_isolation(Context) ->
             end, [CachedInput, CachedOther]),
             %% A shell glob enumerates directory entries without needing /bin/ls.
             Glob = [z_filelib:os_filename(CacheDir), "/*"],
-            ?assertEqual({ok, <<(z_convert:to_binary(CacheDir))/binary, "/*">>},
-                z_exec:run(Profile, ["printf '%s' ", Glob], Options, Context)),
+            ?assertEqual({Profile, {ok, <<(z_convert:to_binary(CacheDir))/binary, "/*">>}},
+                {Profile, z_exec:run(Profile, ["printf '%s' ", Glob], Options, Context)}),
             lists:foreach(fun(Path) ->
                 Write = ["if printf corrupted > ", z_filelib:os_filename(Path),
                     "; then printf leaked; else printf denied; fi"],
@@ -321,7 +323,7 @@ cache_isolation(Context) ->
         %% A declared read/write input is a copy: successful mutation must leave
         %% both the shared cached original and unrelated entries untouched.
         ?assertEqual({ok, <<>>}, z_exec:run(file,
-            ["printf modified > ", z_filelib:os_filename(Input)],
+            ["printf modified > ", z_filelib:os_filename(unicode:characters_to_list(Input))],
             #{read => [Input], write => [Input]}, Context)),
         ?assertEqual({ok, <<"modified">>}, file:read_file(Input)),
         ?assertEqual({ok, <<Allowed/binary, "\n">>}, file:read_file(CachedInput)),
@@ -378,6 +380,31 @@ cache_checks(Context) ->
         ),
         ?assertMatch({ok, _}, mediarunner_cache:read(A, Owner, Context)),
         mediarunner_cache:release(Id, Context),
+        %% Reproduce a worker acquiring an eviction candidate after its selection.
+        lists:foreach(fun(Action) ->
+            z_db:q("update mediarunner_cache set used=0 where owner_id=$1", [Owner], Context),
+            ok = meck:new(z_db, [passthrough, no_link]),
+            try
+                ok = meck:expect(z_db, q, fun(Sql, Args, Ctx) ->
+                    Rows = meck:passthrough([Sql, Args, Ctx]),
+                    case lists:prefix("select owner_id,kind,hash,size", Sql) of
+                        true ->
+                            case Action of
+                                refresh -> {ok, _} = mediarunner_cache:read(A, Owner, Context);
+                                pin -> ok = mediarunner_cache:pin(Id, Job, Context)
+                            end;
+                        false -> ok
+                    end,
+                    Rows
+                end),
+                ?assertEqual({error, full}, mediarunner_cache:upload(
+                    {reserve, maps:get(<<"sha256">>, B), 100}, Owner, Context)),
+                ?assertMatch({ok, _}, mediarunner_cache:read(A, Owner, Context))
+            after
+                meck:unload(z_db),
+                mediarunner_cache:release(Id, Context)
+            end
+        end, [refresh, pin]),
         %% Recent uploads have a one-hour admission lease in addition to job pins.
         z_db:q("update mediarunner_cache set used=0 where owner_id=$1", [Owner], Context),
         ok = cache_upload(B, binary:copy(<<"B">>, 100), Owner, Context),
@@ -681,3 +708,23 @@ tls_path(Name) ->
             Value -> Value
         end,
     filename:join(Dir, Name).
+
+%% Completing a render must not compete with clients still uploading source bytes.
+result_during_upload(Context) ->
+    Old = application:get_env(mediarunner, mediarunner_uploads),
+    application:set_env(mediarunner, mediarunner_uploads, 1),
+    Hash = z_crypto:hex_sha2(z_ids:id(32)),
+    {ok, Lease} = mediarunner_queue:upload({reserve, Hash, 100}, 1, Context),
+    Output = z_tempfile:new(),
+    Content = z_ids:id(32),
+    try
+        ?assertEqual({error, full}, mediarunner_queue:upload(
+            {reserve, z_crypto:hex_sha2(z_ids:id(32)), 100}, 1, Context)),
+        ?assertMatch({ok, _}, z_exec:run(file,
+            ["printf ", Content, " > ", z_filelib:os_filename(Output)], #{write => [Output]}, Context)),
+        ?assertEqual({ok, Content}, file:read_file(Output))
+    after
+        mediarunner_queue:upload({abort, Hash, Lease}, 1, Context),
+        file:delete(Output),
+        restore(mediarunner, mediarunner_uploads, Old)
+    end.

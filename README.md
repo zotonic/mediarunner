@@ -290,6 +290,14 @@ also have a one-hour eviction grace period to cover the gap between uploads and 
 admission. Sources, results and upload reservations share a budget of bytes and
 10,000 entries. HTTP 429 is returned when protected entries leave insufficient space.
 Cache contents are private to the OAuth user and can outlive an individual job.
+Eviction rechecks access times and job pins when deleting each candidate. Result
+publication uses worker capacity independently of incoming upload slots, while
+still obeying the shared disk and entry budgets.
+
+The client bounds protocol response bodies and headers to 64 KiB, including error
+responses and chunked transfers. Result downloads reject error statuses before
+reading the body and stream successful responses to disk with size/hash checks.
+Each HTTPS transfer has an overall deadline and its own connection.
 
 The result key hashes source hashes, normalized command/parameters, file extensions,
 profile, timeout and protocol version, together with execution code, tool stamps,
