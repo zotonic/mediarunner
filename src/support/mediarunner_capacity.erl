@@ -89,6 +89,11 @@ available_memory() ->
         Bytes when Host =:= 0 -> Bytes;
         Bytes -> min(Host, Bytes)
     end.
+
+%% Container memory limits are detected through Linux cgroups (v2, then v1).
+%% On other systems, or when these files are unavailable, return undefined so
+%% available_memory/0 uses host memory reported by memsup. Unknown host memory
+%% falls back to one worker.
 memory_quota() ->
     case remaining("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory.current") of
         undefined ->
@@ -99,6 +104,7 @@ memory_quota() ->
         N ->
             N
     end.
+
 remaining(LimitFile, UsedFile) ->
     case {integer_file(LimitFile), integer_file(UsedFile)} of
         {Limit, Used} when is_integer(Limit), is_integer(Used), Limit < 1152921504606846976 ->
@@ -106,6 +112,7 @@ remaining(LimitFile, UsedFile) ->
         _ ->
             undefined
     end.
+
 integer_file(Path) ->
     try
         {ok, Data} = file:read_file(Path),
@@ -113,6 +120,7 @@ integer_file(Path) ->
     catch
         _:_ -> undefined
     end.
+
 cpu_quota() ->
     try
         {ok, Data} = file:read_file("/sys/fs/cgroup/cpu.max"),

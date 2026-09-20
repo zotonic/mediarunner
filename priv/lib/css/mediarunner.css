@@ -54,3 +54,17 @@ body.mediarunner { background: #f4f6f8; color: #20333c; font-family: system-ui, 
 .mr-cache-panel { display: flex; gap: 28px; align-items: center; margin-bottom: 22px; flex-wrap: wrap; }
 .mr-cache-panel > div:first-child { flex: 1; }.mr-cache-panel p { margin: 0; }
 .mr-cache-panel > meter { width: 160px; height: 20px; accent-color: #33896f; }
+
+.mr-sandbox[data-state="available"] { background: #edf7f1; color: #245b3c; border-color: #b5d8c1; }
+.mr-sandbox[data-state="error"] { background: #fff0ee; color: #8a2920; border-color: #e4b2ac; }
+
+/* Keep the isolation alarm above the queue overview and visible without scrolling. */
+.mr-isolation-alarm {
+    display: flex; align-items: flex-start; gap: 18px; margin: 0 0 28px; padding: 24px;
+    border: 3px solid #b42318; border-left-width: 10px; border-radius: 8px;
+    background: #fff0ee; color: #7f1d1d; box-shadow: 0 3px 12px #7f1d1d18;
+}
+.mr-isolation-alarm[hidden] { display: none; }
+.mr-isolation-icon { font-size: 36px; line-height: 1; }
+.mr-isolation-alarm h2 { margin: 0 0 10px; color: inherit; font-size: clamp(21px, 3vw, 28px); font-weight: 750; }
+.mr-isolation-alarm p { margin: 0; font-size: 16px; line-height: 1.5; }

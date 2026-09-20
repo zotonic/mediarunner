@@ -74,7 +74,9 @@ configure() ->
             {mqtt_listen_ssl_port, 18884},
             {filewatcher_enabled, false},
             {environment, test},
-            {data_dir, filename:join(Dir, "data")},
+            %% Exercise macOS-style paths throughout uploads, sandbox grants,
+            %% result downloads and cleanup on every platform.
+            {data_dir, filename:join([Dir, "Application Support", "zotonic"])},
             {dbhost, DbHost},
             {dbport, 5432},
             {dbdatabase, "zotonic"},

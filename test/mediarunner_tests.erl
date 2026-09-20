@@ -25,7 +25,7 @@
 request_boundary_test() ->
     Url = <<"https://client.example/media-runner/callback">>,
     Job = #{
-        <<"version">> => 1,
+        <<"version">> => 3,
         <<"profile">> => <<"file">>,
         <<"command">> => <<"printf ok">>,
         <<"files">> => [],
