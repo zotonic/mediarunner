@@ -30,7 +30,7 @@ PostgreSQL queue survives site and node restarts.
 -mod_description("Sandboxed remote media processing").
 -mod_prio(100).
 -mod_depends([base, authentication, mod_oauth2, mod_acl_user_groups, mod_content_groups, admin]).
--mod_schema(7).
+-mod_schema(8).
 
 -export([start_link/1, init/1, manage_schema/2, manage_data/2, event/2]).
 
@@ -70,9 +70,12 @@ manage_schema({upgrade, 2}, Context) -> mediarunner_store:install_cache(Context)
 manage_schema(_, _) -> ok.
 
 
-%% @doc Install the API consumer group after the ACL and OAuth2 schemas exist.
+%% @doc Disable indexing and install consumer groups after their schemas exist.
 -spec manage_data(term(), z:context()) -> ok.
-manage_data(install, Context) -> m_mediarunner_consumer:install(Context);
+manage_data(install, Context) ->
+    ok = m_config:set_value(seo, noindex, true, Context),
+    m_mediarunner_consumer:install(Context);
+manage_data({upgrade, 8}, Context) -> m_config:set_value(seo, noindex, true, Context);
 manage_data({upgrade, 7}, Context) -> m_mediarunner_consumer:install(Context);
 manage_data({upgrade, 5}, Context) -> m_mediarunner_consumer:install(Context);
 manage_data(_, _) -> ok.
