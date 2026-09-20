@@ -70,8 +70,12 @@ An explicit empty list rejects all callbacks. The policy is checked both when a
 job is submitted and before each delivery attempt.
 
 Callbacks must use HTTPS without query parameters, userinfo or fragments. The
-runner adds the job ID as a query parameter. TLS certificates are verified and
-redirects are refused. Permit these outbound destinations in the host firewall.
+runner adds the job ID as a query parameter. TLS certificates are verified except when the system `zotonic` application
+configuration sets `{environment, development}`. In development, self-signed
+certificates are accepted for job requests, uploads, result downloads and callbacks.
+Other environments, including `test`, verify certificates and hostnames using the
+configured CA bundle or default trust store. HTTPS is required and redirects are
+refused in every environment. Permit these outbound destinations in the host firewall.
 Media commands themselves have no network access. API credentials authorize shell
 commands within the selected sandbox profile; issue them only to trusted clients.
 

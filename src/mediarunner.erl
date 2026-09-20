@@ -75,7 +75,8 @@ manage_schema(_, _) -> ok.
 manage_data(install, Context) ->
     ok = m_config:set_value(seo, noindex, true, Context),
     m_mediarunner_consumer:install(Context);
-manage_data({upgrade, 8}, Context) -> m_config:set_value(seo, noindex, true, Context);
+manage_data({upgrade, 8}, Context) ->
+    ok = m_config:set_value(seo, noindex, true, Context);
 manage_data({upgrade, 7}, Context) -> m_mediarunner_consumer:install(Context);
 manage_data({upgrade, 5}, Context) -> m_mediarunner_consumer:install(Context);
 manage_data(_, _) -> ok.

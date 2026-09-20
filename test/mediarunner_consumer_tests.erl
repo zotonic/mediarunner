@@ -71,8 +71,8 @@ await_permission(_, 0) -> error(consumer_permission_missing).
 
 render_checks(Consumer, Admin, User, Anonymous) ->
     lists:foreach(fun({Ctx, Expected}) ->
-        {Html, _} = z_template:render_block_to_iolist(content, "mediarunner_dashboard.tpl", [], Ctx),
-        ?assertEqual(Expected, binary:match(iolist_to_binary(Html), <<"mr-consumer-new">>) =/= nomatch)
+        {Html, _} = z_template:render_block_to_iolist(content, "mediarunner_consumers.tpl", [], Ctx),
+        ?assertEqual(Expected, binary:match(iolist_to_binary(Html), <<"Add website / consumer">>) =/= nomatch)
     end, [{Admin, true}, {User, false}, {Anonymous, false},
         {z_acl:set_read_only(true, Admin), false}]),
     lists:foreach(fun(Template) ->

@@ -64,6 +64,7 @@ run() ->
     lists:foreach(fun({K, V}) -> application:set_env(zotonic, K, V) end, Settings),
     application:set_env(mediarunner, mediarunner_callback_urls, [Callback]),
     try
+        development_tls(Url, Token),
         ?assertEqual(
             Callback, z_dispatcher:url_for(media_runner_callback, [{absolute_url, true}], Context)
         ),
@@ -107,6 +108,21 @@ run() ->
         m_oauth2:delete_app(App, Context),
         lists:foreach(fun({K, V}) -> restore(zotonic, K, V) end, Old),
         restore(mediarunner, mediarunner_callback_urls, OldCallbacks)
+    end.
+
+%% The CI certificate is signed by a private CA, outside the default trust store.
+development_tls(Url, Token) ->
+    OldEnvironment = application:get_env(zotonic, environment),
+    OldCa = application:get_env(zotonic, media_runner_cacertfile),
+    try
+        application:unset_env(zotonic, media_runner_cacertfile),
+        application:set_env(zotonic, environment, production),
+        ?assertMatch({error, _}, z_media_runner_protocol:post(Url, Token, #{})),
+        application:set_env(zotonic, environment, development),
+        ?assertEqual({ok, 400}, z_media_runner_protocol:post(Url, Token, #{}))
+    after
+        restore(zotonic, environment, OldEnvironment),
+        restore(zotonic, media_runner_cacertfile, OldCa)
     end.
 
 sandbox_dashboard(Context) ->
