@@ -1,7 +1,11 @@
 {% extends "admin_base.tpl" %}
+
 {% block title %}{_ Media runner _}{% endblock %}
+
 {% block bodyclass %}mediarunner{% endblock %}
+
 {% block head_extra %}{% lib "css/mediarunner.css" %}{% endblock %}
+
 {% block navigation %}
 <nav class="mr-nav" aria-label="{_ Main navigation _}">
     <a href="{% url mediarunner_dashboard %}" class="mr-brand"><span aria-hidden="true">▧</span> {_ Media runner _}</a>
@@ -11,6 +15,7 @@
     <a href="{% url logoff %}">{_ Log out _}</a>
 </nav>
 {% endblock %}
+
 {% block content %}
 <main id="mediarunner" class="mr-dashboard">
     {% if m.acl.user %}
@@ -39,10 +44,6 @@
                 <p id="mr-sandbox" class="mr-alert mr-sandbox" role="status" aria-live="polite" data-state="{{ sandbox.state|escape }}"{% if sandbox.state == 'unsupported' or sandbox.state == 'error' %} hidden{% endif %}>{{ sandbox.message|escape }}</p>
             {% endif %}
         {% endwith %}
-    {% endif %}
-    {% if m.acl.is_admin and not m.acl.is_read_only %}
-        <p>{% button id="mr-consumer-new" class="btn btn-primary" text=_"Add website / consumer"
-            postback=`consumer_new` delegate=`mediarunner` %}</p>
     {% endif %}
     <p id="mr-error" class="mr-alert" role="alert" hidden>{_ Updates are unavailable. Last received data remains visible. _}</p>
     <section class="mr-metrics" aria-label="{_ Queue status _}">
@@ -91,4 +92,5 @@
     </div>
 </main>
 {% endblock %}
+
 {% block js_extra %}{% lib "js/mediarunner.js" %}{% endblock %}
