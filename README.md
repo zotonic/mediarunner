@@ -1,6 +1,6 @@
 # Media runner
 
-A dedicated Zotonic site that queues and processes media jobs on a separate host.
+A dedicated Zotonic site that queues and processes media jobs for other Zotonic sites.
 It uses OAuth2 authentication, native sandboxing where supported, and a persistent
 cache so large files only need to be uploaded once while cached.
 
