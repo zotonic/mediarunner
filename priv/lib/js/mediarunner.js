@@ -51,6 +51,7 @@
         renderSandbox(data.sandbox);
         ["queued", "running", "completed"].forEach(k => text(k, count(data.counts, "status", k)));
         text("workers", data.workers);
+        text("ffmpeg-workers", data.capacity.ffmpeg_workers);
         text("attention", count(data.counts, "status", "failed") + count(data.delivery, "delivery", "failed"));
         renderChart(data);
         const mib = n => (n / 1048576).toLocaleString([], {maximumFractionDigits: 1});

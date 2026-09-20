@@ -319,7 +319,7 @@ cache_isolation(Context) ->
                     "; then printf leaked; else printf denied; fi"],
                 ?assertEqual({ok, <<"denied">>}, z_exec:run(Profile, Write, Options, Context))
             end, [CachedInput, CachedOther, filename:join(CacheDir, "forbidden-new-file")])
-        end, [file, imagemagick, imagemagick_pdf, ffmpeg, ffprobe]),
+        end, [file, imagemagick, imagemagick_pdf, ffmpeg, ffmpeg_preview, ffprobe]),
         %% A declared read/write input is a copy: successful mutation must leave
         %% both the shared cached original and unrelated entries untouched.
         ?assertEqual({ok, <<>>}, z_exec:run(file,
@@ -329,7 +329,7 @@ cache_isolation(Context) ->
         ?assertEqual({ok, <<Allowed/binary, "\n">>}, file:read_file(CachedInput)),
         ?assertEqual({ok, <<Secret/binary, "\n">>}, file:read_file(CachedOther)),
         ?assertNot(filelib:is_file(filename:join(CacheDir, "forbidden-new-file"))),
-        io:format("Cache content isolation verified for all five sandbox profiles.~n")
+        io:format("Cache content isolation verified for all media profiles.~n")
     after
         file:delete(Input),
         file:delete(Other)

@@ -55,7 +55,9 @@ init(Context) ->
     mediarunner_cache:cleanup_uploads(true, Context),
     Capacity = mediarunner_capacity:snapshot(Context),
     %% This site's previous coordinator may have died before jobs saw its DOWN signal.
-    jobs:delete_queue(mediarunner_capacity:queue(Context)),
+    lists:foreach(fun(Kind) ->
+        jobs:delete_queue(mediarunner_capacity:queue(Kind, Context))
+    end, [run, ffmpeg]),
     ok = mediarunner_capacity:configure(Capacity, Context),
     self() ! poll,
     {ok, #{context => z_context:new(Context), active => #{}, uploads => #{}, ticks => 0, capacity => Capacity}}.
@@ -157,9 +159,10 @@ forget_upload(Owner, Hash, Token, #{uploads := Uploads} = State) ->
     end, Uploads),
     State#{uploads => Rest}.
 
-fill(#{capacity := #{workers := Limit}} = State) ->
-    %% Result delivery must continue even when media processors saturate every slot.
-    fill(run, Limit, fill(deliver, 2, State)).
+fill(#{capacity := #{workers := Limit, ffmpeg_workers := Ffmpeg}} = State) ->
+    %% Separate admission prevents queued/running ffmpeg jobs from occupying
+    %% general workers. Deliveries remain independent of both processing pools.
+    fill(ffmpeg, Ffmpeg, fill(run, Limit, fill(deliver, 2, State))).
 fill(Kind, Limit, #{context := Context, active := Active} = State) ->
     Count = length([ok || {_, K, _} <- maps:values(Active), K =:= Kind]),
     case Count < Limit of
@@ -178,8 +181,8 @@ fill(Kind, Limit, #{context := Context, active := Active} = State) ->
     end.
 regulated_work(deliver, Job, Context) ->
     work(deliver, Job, Context);
-regulated_work(run, #{<<"id">> := Id} = Job, Context) ->
-    case jobs:ask(mediarunner_capacity:queue(Context)) of
+regulated_work(Kind, #{<<"id">> := Id} = Job, Context) when Kind =:= run; Kind =:= ffmpeg ->
+    case jobs:ask(mediarunner_capacity:queue(Kind, Context)) of
         {ok, Ticket} ->
             try
                 mediarunner_store:started(Id, Context),

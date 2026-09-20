@@ -64,7 +64,8 @@ Runner settings belong in the **site configuration**. Common defaults:
 
 | Setting | Default |
 | --- | --- |
-| `mediarunner_workers` | `auto`, bounded to 1–32 workers |
+| `mediarunner_workers` | `auto`, bounded to 1–32 general workers |
+| `mediarunner_ffmpeg_workers` | `1`; set to `2` for two concurrent ffmpeg renders |
 | `mediarunner_memory_per_worker` | 4 GiB |
 | `mediarunner_queue_limit` | 1,000 outstanding jobs |
 | `mediarunner_uploads` | 4 upload reservations |
@@ -78,7 +79,10 @@ for exact values, storage budgets and all options. The
 [client settings](docs/reference.md#client-system-configuration) include file size,
 callback and timeout limits; some must be configured on both hosts.
 
-- **Queue:** jobs persist in PostgreSQL; unfinished processing resumes after restart.
+- **Queue:** ffmpeg renders have a separate worker pool. Video thumbnails and audio
+  artwork use `ffmpeg_preview` and share the general pool with ImageMagick and
+  `ffprobe`, so they can bypass the render backlog. Jobs persist in PostgreSQL; unfinished
+  processing resumes after restart.
   Callbacks retry with backoff. HTTP 429 indicates overload or insufficient capacity.
 - **Cache:** source/result files normally live in
   `<data_dir>/sites/mediarunner/files/mediarunner/`; private job files use
