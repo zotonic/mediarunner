@@ -1,4 +1,5 @@
 [
+    {mediarunner_capabilities, ["media-runner", "jobs", "capabilities"], controller_mediarunner_capabilities, []},
     {mediarunner_consumers, ["consumers"], controller_admin,
         [{template, "mediarunner_consumers.tpl"}, {acl_module, mod_admin_config}]},
     {home, [], controller_admin,

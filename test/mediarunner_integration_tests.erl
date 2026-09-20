@@ -54,7 +54,6 @@ run() ->
     Settings = [
         {media_runner_hostname, <<"localhost:18443">>},
         {media_runner_oauth2_key, Token},
-        {media_runner_imagemagick_legacy, os:find_executable("magick") =:= false},
         {media_runner_cacertfile, Cert},
         {media_runner_wait_timeout, 10000},
         {media_runner_local_fallback, false}
@@ -65,6 +64,14 @@ run() ->
     application:set_env(mediarunner, mediarunner_callback_urls, [Callback]),
     try
         development_tls(Url, Token),
+        ?assertEqual({ok, 401}, z_media_runner_protocol:post(<<Url/binary, "/capabilities">>, <<"invalid">>, #{})),
+        ?assertEqual({ok, 403}, z_media_runner_protocol:post(<<Url/binary, "/capabilities">>, ReadOnly, #{})),
+        z_media_imagemagick:clear_cache(),
+        LocalImageMagick = z_media_imagemagick:local(),
+        RemoteImageMagick = z_media_imagemagick:selected(),
+        ?assertEqual(true, maps:get(available, RemoteImageMagick)),
+        ?assertEqual(maps:get(version, LocalImageMagick), maps:get(version, RemoteImageMagick)),
+        ?assertEqual(maps:get(legacy, LocalImageMagick), z_media_preview:is_legacy_imagemagick()),
         ?assertEqual(
             Callback, z_dispatcher:url_for(media_runner_callback, [{absolute_url, true}], Context)
         ),

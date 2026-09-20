@@ -42,7 +42,7 @@ openssl x509 -req -days 1 -in "$ci_dir/tls/server.csr" \
 erl -noshell -pa _build/default/lib/*/ebin -eval '
     Out = filename:join(os:getenv("MEDIARUNNER_CI_DIR"), "ebin"),
     Files = filelib:wildcard("apps_user/mediarunner/test/*.erl") ++
-        ["apps/zotonic_core/test/z_media_runner_tests.erl"],
+        ["apps/zotonic_core/test/z_media_runner_tests.erl", "apps/zotonic_core/test/z_media_imagemagick_tests.erl"],
     case lists:all(fun(File) ->
         case compile:file(File, [{outdir, Out}, report]) of
             {ok, _} -> true;
@@ -51,7 +51,7 @@ erl -noshell -pa _build/default/lib/*/ebin -eval '
     end, Files) of true -> halt(0); false -> halt(1) end.'
 
 erl -noshell -pa _build/default/lib/*/ebin "$ci_dir/ebin" -eval '
-    case eunit:test([mediarunner_tests, z_media_runner_tests], [verbose]) of
+    case eunit:test([mediarunner_tests, z_media_runner_tests, z_media_imagemagick_tests], [verbose]) of
         ok -> halt(0);
         _ -> halt(1)
     end.'

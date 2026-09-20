@@ -132,7 +132,6 @@ Omitting `media_runner_hostname` retains local execution. Optional settings:
 | `media_runner_max_input_bytes` | `17179869184` | Maximum source file size (16 GiB); configure on both hosts. Sources are streamed. |
 | `media_runner_max_output_bytes` | `17179869184` | Maximum combined output size per job (16 GiB); configure on both hosts. Outputs are streamed. |
 | `media_runner_max_callback_bytes` | `135266304` | Maximum encoded callback JSON body (129 MiB), reserved per starting/running job. Configure on both hosts; file transfers have separate limits. |
-| `media_runner_imagemagick_legacy` | `false` | Use ImageMagick 6 `convert`/`identify` instead of `magick`. |
 | `media_runner_cacertfile` | unset | Optional private CA bundle for runner and callback HTTPS connections. |
 | `media_runner_local_fallback` | `false` | Retry locally on transport errors, overload, HTTP 502–504 or callback timeout. |
 
@@ -143,7 +142,23 @@ processing must tolerate duplicate execution. The client only installs results
 from the request it is awaiting.
 
 Media tool discovery works without local binaries when remote processing is
-configured. Custom absolute executable paths must exist on the runner. Input and
+configured. The client probes the authenticated `/media-runner/jobs/capabilities`
+endpoint for the runner's installed ImageMagick version. The runner executes its
+local binary with `-version`; preview and identify commands use that version,
+including the differences between ImageMagick 6 and 7. The old
+`media_runner_imagemagick_legacy` setting is no longer needed.
+
+Local and remote probes have separate 60-second caches. Hostname, credentials,
+TLS configuration and fallback changes invalidate the remote cache; local executable
+changes invalidate the local cache. Failed probes retry after five seconds, and
+concurrent requests share a refresh. If the runner is unavailable, local discovery
+is used only when local fallback is enabled; otherwise preview generation reports a missing
+tool rather than guessing a remote version. With local fallback enabled, differing
+local/remote versions (including a missing local installation) log a warning once
+per configuration/version combination. Align the versions for compatible fallback.
+Run `z_media_imagemagick:clear_cache/0` to force immediate rediscovery.
+
+Custom absolute executable paths must exist on the runner. Input and
 output files must be explicitly declared in `read` and `write`; paths in commands
 are replaced with private workspace paths. The remote working directory is a
 private scratch directory. Server profile limits determine CPU/memory permissions;
