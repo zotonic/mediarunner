@@ -165,7 +165,16 @@ sidecar files and custom local environment variables are not transferred.
 ## Queue and automatic capacity
 
 Jobs are stored in PostgreSQL before acceptance. A supervised coordinator runs
-processing workers under a `jobs` counter with CPU and memory overload modifiers.
+separate general and ffmpeg render worker pools, each with its own `jobs` counter and
+CPU/memory overload modifiers. Rendering defaults to one worker; set
+`mediarunner_ffmpeg_workers` to `2` for two concurrent renders. ImageMagick, ffprobe,
+file and `ffmpeg_preview` jobs use the general pool and skip queued renders.
+Video thumbnails and audio artwork extraction use `ffmpeg_preview` automatically.
+Custom lightweight callers can use `z_exec:run(ffmpeg_preview, Command, Options, Context)`;
+full conversions should retain `ffmpeg`. Both profiles use the same ffmpeg sandbox
+limits and administrator-configured grants. The distinction is explicit, not
+inferred from shell command text. Upgrade the Zotonic code on both client and
+runner before using the new profile; older runners reject it.
 On restart, unfinished processing jobs are queued again. Two separate callback
 workers keep delivery moving while processing is saturated. Failed callbacks retry
 with exponential delays, up to 12 attempts or the job deadline. Job history is
@@ -182,7 +191,8 @@ These settings belong to the runner **site** configuration:
 
 | Site setting | Default | Meaning |
 | --- | --- | --- |
-| `mediarunner_workers` | `auto` | Automatic capacity, or an explicit integer from 1 to 32. |
+| `mediarunner_workers` | `auto` | General pool capacity, or an explicit integer from 1 to 32. |
+| `mediarunner_ffmpeg_workers` | `1` | Separate ffmpeg render pool: 1 or 2 workers; other values use 1. |
 | `mediarunner_memory_per_worker` | `4294967296` | Memory budget per processing worker (4 GiB). |
 | `mediarunner_queue_limit` | `1000` | Maximum outstanding jobs, including callback delivery. |
 | `mediarunner_storage_limit` | `1073741824` | Queue metadata and result budget, including reserved space for starting/running results. |
@@ -192,13 +202,18 @@ These settings belong to the runner **site** configuration:
 | `mediarunner_result_retention` | `86400` | Seconds to protect uncollected outputs after processing (24 hours, checked hourly). |
 | `mediarunner_cache_version` | `1` | Administrator-controlled result-cache generation. |
 
-Automatic workers are `max(1, min(32, cores - 1, floor(available_memory * 0.75 /
+Automatic general workers are `max(1, min(32, cores - 1, floor(available_memory * 0.75 /
 memory_per_worker)))`. Online Erlang schedulers and detected Linux cgroup CPU and
 memory quotas bound the calculation. Memory comes from `memsup`, including
 reclaimable cache where reported. If memory information is unavailable the default
 is one worker. Capacity is refreshed every minute; running work is allowed to
 finish when the limit decreases. `jobs` may further delay admission under load.
 An explicit worker count overrides the calculation, but retains overload protection.
+The ffmpeg workers are additional to the general worker count; budget host resources
+for both pools. Changes take effect within a minute and allow running work to finish.
+CPU/memory overload can still throttle either pool. Before starting ffmpeg, the
+scheduler leaves one callback envelope free for general work, so renders cannot
+consume the entire execution reservation budget.
 
 The storage budget is separate from the cache budget and is conservative: reserving
 space for worst-case results may reject work before the job-count limit is reached.

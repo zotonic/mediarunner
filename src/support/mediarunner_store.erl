@@ -168,7 +168,7 @@ recover(Context) ->
     z_db:q("update mediarunner_job set delivery='pending' where delivery='sending'", Context),
     ok.
 
--spec next(run | deliver, z:context()) -> none | {run | deliver, map()}.
+-spec next(run | ffmpeg | deliver, z:context()) -> none | {run | ffmpeg | deliver, map()}.
 next(deliver, Context) ->
     case
         z_db:qmap(
@@ -182,11 +182,13 @@ next(deliver, Context) ->
         {ok, [Job]} -> {deliver, Job};
         {ok, []} -> none
     end;
-next(run, Context) ->
+next(Kind, Context) when Kind =:= run; Kind =:= ffmpeg ->
     {_Count, Used} = queue_usage(Context),
     Budget = setting(mediarunner_storage_limit, 1073741824, Context),
-    case Used + z_media_runner_protocol:callback_limit() =< Budget of
-        true -> next_run(Context);
+    %% Video renders must leave a callback envelope available for general work.
+    Reservations = case Kind of ffmpeg -> 2; run -> 1 end,
+    case Used + Reservations * z_media_runner_protocol:callback_limit() =< Budget of
+        true -> next_run(Kind, Context);
         false -> none
     end.
 
@@ -201,16 +203,17 @@ queue_usage(Context) ->
         "from mediarunner_job where payload is not null", Context),
     {Count, Bytes + Active * z_media_runner_protocol:callback_limit()}.
 
-next_run(Context) ->
+next_run(Kind, Context) ->
     case
         z_db:qmap(
             "update mediarunner_job set status='starting'\n"
             "        where id=(select id from mediarunner_job where status='queued'\n"
+            "            and (profile='ffmpeg')=$1\n"
             "            order by created,id limit 1) returning *",
-            Context
+            [Kind =:= ffmpeg], Context
         )
     of
-        {ok, [Job]} -> {run, Job};
+        {ok, [Job]} -> {Kind, Job};
         {ok, []} -> none
     end.
 
@@ -277,8 +280,8 @@ finish_delivery(Id, Status, Context) ->
     ),
     ok.
 
--spec failed(binary(), run | deliver, z:context()) -> ok.
-failed(Id, run, Context) ->
+-spec failed(binary(), run | ffmpeg | deliver, z:context()) -> ok.
+failed(Id, Kind, Context) when Kind =:= run; Kind =:= ffmpeg ->
     case z_db:q1("select status from mediarunner_job where id=$1", [Id], Context) of
         Status when Status =:= <<"starting">>; Status =:= <<"running">> ->
             result(Id, #{<<"status">> => <<"error">>, <<"error">> => <<"worker_failed">>}, Context);

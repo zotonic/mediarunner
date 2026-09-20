@@ -24,7 +24,7 @@ Conservative processing capacity from online schedulers and available memory, ca
 container quotas when exposed. Keep one CPU and 25% of available memory for Zotonic and
 the OS. Unknown memory means one worker.
 ").
--export([snapshot/1, workers/3, queue/1, configure/2]).
+-export([snapshot/1, workers/3, queue/1, queue/2, configure/2]).
 
 -spec snapshot(z:context()) -> map().
 snapshot(Context) ->
@@ -40,7 +40,12 @@ snapshot(Context) ->
             W when is_integer(W), W > 0, W =< 32 -> W;
             _ -> workers(Cores, Available, Budget)
         end,
-    #{workers => Limit, cores => Cores, available_memory => Available, memory_per_worker => Budget}.
+    Ffmpeg = case m_site:get(mediarunner_ffmpeg_workers, Context) of
+        2 -> 2;
+        _ -> 1
+    end,
+    #{workers => Limit, ffmpeg_workers => Ffmpeg, cores => Cores,
+        available_memory => Available, memory_per_worker => Budget}.
 
 -spec workers(pos_integer(), non_neg_integer(), pos_integer()) -> pos_integer().
 workers(Cores, Available, PerWorker) when
@@ -51,11 +56,20 @@ workers(Cores, Available, PerWorker) when
     max(1, min(32, min(max(1, Cores - 1), Available * 3 div 4 div PerWorker))).
 
 -spec queue(z:context()) -> term().
-queue(Context) -> {mediarunner_processing, z_context:site(Context)}.
+queue(Context) -> queue(run, Context).
+
+%% @doc Keep long ffmpeg commands independent of the general processing counter.
+-spec queue(run | ffmpeg, z:context()) -> term().
+queue(run, Context) -> {mediarunner_processing, z_context:site(Context)};
+queue(ffmpeg, Context) -> {mediarunner_ffmpeg, z_context:site(Context)}.
 
 -spec configure(map(), z:context()) -> ok.
-configure(#{workers := Limit} = Capacity, Context) ->
-    Name = queue(Context),
+configure(#{workers := Limit, ffmpeg_workers := Ffmpeg} = Capacity, Context) ->
+    ok = configure_queue(queue(run, Context), Limit),
+    ok = configure_queue(queue(ffmpeg, Context), Ffmpeg),
+    application:set_env(z_context:site(Context), mediarunner_capacity, Capacity).
+
+configure_queue(Name, Limit) ->
     case jobs:queue_info(Name) of
         undefined ->
             ok = jobs:add_queue(Name, [
@@ -69,8 +83,7 @@ configure(#{workers := Limit} = Capacity, Context) ->
                 {counter, Name, 1},
                 [{limit, Limit}, {modifiers, [{cpu, 10}, {memory, 10}]}]
             )
-    end,
-    application:set_env(z_context:site(Context), mediarunner_capacity, Capacity).
+    end.
 
 available_memory() ->
     Data =

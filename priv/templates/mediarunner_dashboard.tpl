@@ -48,7 +48,7 @@
     <p id="mr-error" class="mr-alert" role="alert" hidden>{_ Updates are unavailable. Last received data remains visible. _}</p>
     <section class="mr-metrics" aria-label="{_ Queue status _}">
         <article><h2>{_ Waiting _}</h2><strong id="mr-queued">—</strong><p>{_ Jobs ready to process _}</p></article>
-        <article><h2>{_ Running _}</h2><strong id="mr-running">—</strong><p><span id="mr-workers">—</span> {_ worker slots _}</p></article>
+        <article><h2>{_ Running _}</h2><strong id="mr-running">—</strong><p><span id="mr-workers">—</span> {_ general workers _} · <span id="mr-ffmpeg-workers">—</span> {_ ffmpeg render workers _}</p></article>
         <article><h2>{_ Completed _}</h2><strong id="mr-completed">—</strong><p>{_ In the last 24 hours _}</p></article>
         <article><h2>{_ Needs attention _}</h2><strong id="mr-attention">—</strong><p>{_ Processing or delivery failures, last 24 hours _}</p></article>
     </section>
