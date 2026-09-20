@@ -154,8 +154,8 @@ changes invalidate the local cache. Failed probes retry after five seconds, and
 concurrent requests share a refresh. If the runner is unavailable, local discovery
 is used only when local fallback is enabled; otherwise preview generation reports a missing
 tool rather than guessing a remote version. With local fallback enabled, differing
-local/remote versions (including a missing local installation) log a warning once
-per configuration/version combination. Align the versions for compatible fallback.
+local/remote major versions (including a missing local installation) log a warning once
+per configuration/major-version combination. Align the versions for compatible fallback.
 Run `z_media_imagemagick:clear_cache/0` to force immediate rediscovery.
 
 Custom absolute executable paths must exist on the runner. Input and
