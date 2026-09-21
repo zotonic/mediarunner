@@ -384,7 +384,18 @@ room(Bytes, Items, Owner, Protected, Context) ->
              || {O, K, H, _} = E <- Candidates,
                 not (O =:= Owner andalso K =:= <<"file">> andalso lists:member(H, Protected))
             ],
-            evict(Eligible, NeedBytes, NeedItems, Context)
+            case evict(Eligible, NeedBytes, NeedItems, Context) of
+                ok ->
+                    %% Unlinks can fail, and other processes can consume space
+                    %% during eviction. Recheck actual free space before admission.
+                    #{bytes := Remaining, items := RemainingItems, limit := CurrentLimit} = stats(Context),
+                    case Remaining + Bytes =< CurrentLimit andalso RemainingItems + Items =< 10000 of
+                        true -> ok;
+                        false -> {error, full}
+                    end;
+                {error, _} = Error ->
+                    Error
+            end
     end.
 
 evict(_, Bytes, Items, _) when Bytes =< 0, Items =< 0 -> ok;
@@ -415,19 +426,25 @@ evict([{O, K, H, _Size} | Rest], Bytes, Items, Context) ->
 
 -spec stats(z:context()) -> map().
 stats(Context) ->
-    [{Count, Bytes}] = z_db:q("
-        select count(*), coalesce(sum(size),0)::bigint
+    [{Count, Bytes, Stored}] = z_db:q("
+        select count(*), coalesce(sum(size),0)::bigint,
+            coalesce(sum(size) filter (where kind = 'file' and complete),0)::bigint
         from mediarunner_cache", Context
     ),
-    Limit =
+    ConfiguredLimit =
         case m_site:get(mediarunner_cache_max_bytes, Context) of
             N when is_integer(N), N > 0 ->
                 N;
             _ ->
                 107374182400
         end,
+    CacheDir = z_path:files_subdir_ensure("mediarunner", Context),
+    {Total, Available} = mediarunner_capacity:cache_disk(CacheDir),
     #{
         items => Count,
         bytes => Bytes,
-        limit => Limit
+        limit => mediarunner_capacity:cache_limit(ConfiguredLimit, Total, Available, Stored),
+        configured_limit => ConfiguredLimit,
+        disk_total => Total,
+        disk_available => Available
     }.

@@ -199,7 +199,7 @@ These settings belong to the runner **site** configuration:
 | `mediarunner_queue_limit` | `1000` | Maximum outstanding jobs, including callback delivery. |
 | `mediarunner_storage_limit` | `1073741824` | Queue metadata and result budget, including reserved space for starting/running results. |
 | `mediarunner_uploads` | `4` | Maximum concurrent upload reservations. |
-| `mediarunner_cache_max_bytes` | `107374182400` | Combined disk source/result cache budget (100 GiB), including reserved uploads. |
+| `mediarunner_cache_max_bytes` | `107374182400` | Maximum combined source/result cache budget (100 GiB), including reserved uploads. Automatically capped to the cache filesystem’s capacity and free space, keeping at least 10% or 1 GiB free (whichever is larger). |
 | `mediarunner_cache_max_age` | `604800` | Expire unpinned files and cached manifests after this many idle seconds (seven days; minimum one hour). |
 | `mediarunner_result_retention` | `86400` | Seconds to protect uncollected outputs after processing (24 hours, checked hourly). |
 | `mediarunner_cache_version` | `1` | Administrator-controlled result-cache generation. |
@@ -304,6 +304,13 @@ also have a one-hour eviction grace period to cover the gap between uploads and 
 admission. Sources, results and upload reservations share a budget of bytes and
 10,000 entries. HTTP 429 is returned when protected entries leave insufficient space.
 Cache contents are private to the OAuth user and can outlive an individual job.
+Cache admission checks the filesystem containing the cache directory, including
+paths with spaces and symlinked storage. Complete files count as reclaimable cache
+space; pending uploads reserve their full size. If disk capacity cannot be read,
+new reservations are rejected. The dashboard shows the effective cache limit.
+The reserve provides headroom for temporary processing files and other services;
+it is not a filesystem quota on those services or running media commands.
+
 Eviction rechecks access times and job pins when deleting each candidate. Result
 publication uses worker capacity independently of incoming upload slots, while
 still obeying the shared disk and entry budgets.
