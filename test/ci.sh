@@ -5,7 +5,7 @@ set -euo pipefail
 ci_site_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ci_site_dir/../.."
 
-if [[ ! -f apps/zotonic_core/src/support/z_media_runner.erl ]]; then
+if [[ ! -f apps/zotonic_core/src/media/z_media_runner.erl ]]; then
     echo 'This Zotonic checkout does not include the media runner client support.' >&2
     exit 1
 fi

@@ -32,12 +32,19 @@ PostgreSQL queue survives site and node restarts.
 -mod_depends([base, authentication, mod_oauth2, mod_acl_user_groups, mod_content_groups, admin]).
 -mod_schema(8).
 
--export([start_link/1, init/1, manage_schema/2, manage_data/2, event/2]).
+-export([
+    start_link/1,
+    init/1,
+    manage_schema/2,
+    manage_data/2,
+    event/2
+]).
 
 -include_lib("zotonic_core/include/zotonic.hrl").
 
 -spec start_link(list()) -> supervisor:startlink_ret().
-start_link(Args) -> supervisor:start_link(?MODULE, Args).
+start_link(Args) ->
+    supervisor:start_link(?MODULE, Args).
 
 -spec init(list()) -> {ok, {supervisor:sup_flags(), [supervisor:child_spec()]}}.
 init(Args) ->
@@ -62,11 +69,16 @@ init(Args) ->
     }.
 
 -spec manage_schema(term(), z:context()) -> ok.
-manage_schema(install, Context) -> mediarunner_store:install(Context);
-manage_schema({upgrade, 6}, Context) -> mediarunner_statistics:install(Context);
-manage_schema({upgrade, 4}, Context) -> mediarunner_store:install_cache(Context);
-manage_schema({upgrade, 3}, Context) -> mediarunner_store:install_cache(Context);
-manage_schema({upgrade, 2}, Context) -> mediarunner_store:install_cache(Context);
+manage_schema(install, Context) ->
+    mediarunner_store:install(Context);
+manage_schema({upgrade, 6}, Context) ->
+    mediarunner_statistics:install(Context);
+manage_schema({upgrade, 4}, Context) ->
+    mediarunner_store:install_cache(Context);
+manage_schema({upgrade, 3}, Context) ->
+    mediarunner_store:install_cache(Context);
+manage_schema({upgrade, 2}, Context) ->
+    mediarunner_store:install_cache(Context);
 manage_schema(_, _) -> ok.
 
 
@@ -77,8 +89,10 @@ manage_data(install, Context) ->
     m_mediarunner_consumer:install(Context);
 manage_data({upgrade, 8}, Context) ->
     ok = m_config:set_value(seo, noindex, true, Context);
-manage_data({upgrade, 7}, Context) -> m_mediarunner_consumer:install(Context);
-manage_data({upgrade, 5}, Context) -> m_mediarunner_consumer:install(Context);
+manage_data({upgrade, 7}, Context) ->
+    m_mediarunner_consumer:install(Context);
+manage_data({upgrade, 5}, Context) ->
+    m_mediarunner_consumer:install(Context);
 manage_data(_, _) -> ok.
 
 %% @doc Handle administrator-only consumer dialogs; provisioning checks ACL again.
@@ -115,24 +129,31 @@ event(#submit{message = {consumer_update, [{id, Id}]}}, Context) ->
             z_render:dialog(?__("New OAuth2 key", Context),
                 "_dialog_mediarunner_consumer_key.tpl",
                 [{consumer, Consumer}, {backdrop, static}], Context);
-        {ok, _} -> z_render:wire({reload, []}, Context);
+        {ok, _} ->
+            z_render:wire({reload, []}, Context);
         {error, invalid_name} ->
             z_render:growl_error(?__("Enter a name of 1 to 128 characters.", Context), Context);
-        {error, _} -> consumer_error(Context)
+        {error, _} ->
+            consumer_error(Context)
     end;
 event(#submit{message = {consumer_delete_confirm, [{id, Id}]}}, Context) ->
     case m_mediarunner_consumer:delete(Id, Context) of
-        ok -> z_render:wire({reload, []}, Context);
-        {error, _} -> consumer_error(Context)
+        ok ->
+            z_render:wire({reload, []}, Context);
+        {error, _} ->
+            consumer_error(Context)
     end.
 
 consumer_dialog(Id, Template, Title, Context) ->
     case z_acl:is_read_only(Context) of
-        true -> consumer_error(Context);
+        true ->
+            consumer_error(Context);
         false ->
             case m_mediarunner_consumer:get(Id, Context) of
-                {ok, Consumer} -> z_render:dialog(Title, Template, [{consumer, Consumer}], Context);
-                {error, _} -> consumer_error(Context)
+                {ok, Consumer} ->
+                    z_render:dialog(Title, Template, [{consumer, Consumer}], Context);
+                {error, _} ->
+                    consumer_error(Context)
             end
     end.
 

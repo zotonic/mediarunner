@@ -402,22 +402,34 @@ cache_checks(Context) ->
         %% Reproduce a worker acquiring an eviction candidate after its selection.
         lists:foreach(fun(Action) ->
             z_db:q("update mediarunner_cache set used=0 where owner_id=$1", [Owner], Context),
+            Race = make_ref(),
+            TestPid = self(),
             ok = meck:new(z_db, [passthrough, no_link]),
             try
                 ok = meck:expect(z_db, q, fun(Sql, Args, Ctx) ->
                     Rows = meck:passthrough([Sql, Args, Ctx]),
-                    case lists:prefix("select owner_id,kind,hash,size", Sql) of
+                    %% SQL layout is not part of the cache API. Match the
+                    %% candidate query independently of spaces and line breaks.
+                    CompactSql = re:replace(Sql, "\\s+", "", [global, {return, list}]),
+                    case lists:prefix("selectowner_id,kind,hash,sizefrommediarunner_cache", CompactSql) of
                         true ->
                             case Action of
                                 refresh -> {ok, _} = mediarunner_cache:read(A, Owner, Context);
                                 pin -> ok = mediarunner_cache:pin(Id, Job, Context)
-                            end;
+                            end,
+                            TestPid ! {Race, Action};
                         false -> ok
                     end,
                     Rows
                 end),
-                ?assertEqual({error, full}, mediarunner_cache:upload(
-                    {reserve, maps:get(<<"sha256">>, B), 100}, Owner, Context)),
+                Reply = mediarunner_cache:upload(
+                    {reserve, maps:get(<<"sha256">>, B), 100}, Owner, Context),
+                receive
+                    {Race, Action} -> ok
+                after 0 ->
+                    error({cache_race_not_exercised, Action})
+                end,
+                ?assertEqual({error, full}, Reply),
                 ?assertMatch({ok, _}, mediarunner_cache:read(A, Owner, Context))
             after
                 meck:unload(z_db),

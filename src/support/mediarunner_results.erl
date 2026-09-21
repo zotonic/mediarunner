@@ -44,7 +44,8 @@ persist(Path, Hash, Size, Owner, Deadline, Context) ->
             true = erlang:monotonic_time(second) < Deadline,
             timer:sleep(1000),
             persist(Path, Hash, Size, Owner, Deadline, Context);
-        {error, Reason} -> error({result_cache, Reason})
+        {error, Reason} ->
+            error({result_cache, Reason})
     end.
 
 move(Source, Target) ->
@@ -57,14 +58,17 @@ move(Source, Target) ->
                 ok = file:change_mode(Target, 8#600),
                 {ok, _} = file:copy(Source, Fd),
                 file:sync(Fd)
-            after file:close(Fd) end
+            after
+                file:close(Fd)
+            end
     end.
 
 %% @doc Resolve download routes afresh, including for cached operation manifests.
 -spec links(map(), z:context()) -> map().
 links(#{<<"files">> := Files} = Result, Context) ->
     Result#{<<"files">> => [download_link(F, Context) || F <- Files]};
-links(Result, _) -> Result.
+links(Result, _) ->
+    Result.
 
 download_link(#{<<"sha256">> := Hash} = File, Context) ->
     Path = z_dispatcher:url_for(mediarunner_result, [{hash, Hash}], Context),

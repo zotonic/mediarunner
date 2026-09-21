@@ -42,40 +42,63 @@ start(Context) ->
         _ -> 604800
     end,
     Now = erlang:system_time(second),
-    #{phase => {rows, <<"file">>, none}, cache_root => root("mediarunner", Context), cutoff => (Now - MaxAge) * 1000000,
-        orphan_cutoff => Now - 3600, removed_rows => 0, removed_files => 0}.
+    #{
+        phase => {rows, <<"file">>, none},
+        cache_root => root("mediarunner", Context),
+        cutoff => (Now - MaxAge) * 1000000,
+        orphan_cutoff => Now - 3600,
+        removed_rows => 0,
+        removed_files => 0
+    }.
 
 -spec step(map(), z:context()) -> map() | done.
 step(#{phase := {rows, Kind, Cursor}} = State, Context) ->
     Rows = rows(Kind, Cursor, Context),
     Next = lists:foldl(fun(Row, Acc) -> reconcile(Kind, Row, Acc, Context) end, State, Rows),
     case Rows of
-        [] when Kind =:= <<"file">> -> Next#{phase => {rows, <<"result">>, none}};
-        [] -> disk_phase("mediarunner", Next, Context);
+        [] when Kind =:= <<"file">> ->
+            Next#{phase => {rows, <<"result">>, none}};
+        [] ->
+            disk_phase("mediarunner", Next, Context);
         _ ->
             {Owner, Hash, _, _, _, _} = lists:last(Rows),
-            Next#{phase => {rows, Kind, {Owner, Hash}}}
+            Next#{ phase => {rows, Kind, {Owner, Hash}} }
     end;
 step(#{phase := {disk, Name, Root, Names}} = State, Context) ->
     {Batch, Rest} = lists:split(min(?BATCH, length(Names)), Names),
     Next = lists:foldl(fun(File, Acc) -> reconcile_disk(Name, Root, File, Acc, Context) end, State, Batch),
     case {Rest, Name} of
-        {[], "mediarunner"} -> disk_phase("mediarunner-work", Next, Context);
+        {[], "mediarunner"} ->
+            disk_phase("mediarunner-work", Next, Context);
         {[], "mediarunner-work"} ->
-            ?LOG_INFO(#{text => <<"Media runner cache reconciliation completed">>,
-                in => mediarunner, removed_rows => maps:get(removed_rows, Next),
-                removed_files => maps:get(removed_files, Next)}),
+            ?LOG_INFO(#{
+                text => <<"Media runner cache reconciliation completed">>,
+                in => mediarunner,
+                removed_rows => maps:get(removed_rows, Next),
+                removed_files => maps:get(removed_files, Next)
+            }),
             done;
-        _ -> Next#{phase => {disk, Name, Root, Rest}}
+        _ ->
+            Next#{phase => {disk, Name, Root, Rest}}
     end.
 
 rows(Kind, none, Context) ->
-    z_db:q("select owner_id,hash,path,size,used,case when kind='result' then data else null end from mediarunner_cache "
-        "where kind=$1 and complete order by owner_id,hash limit $2", [Kind, batch_size(Kind)], Context);
+    z_db:q("
+        select owner_id,hash,path,size,used,case when kind='result' then data else null end
+        from mediarunner_cache
+        where kind = $1
+          and complete
+        order by owner_id,hash
+        limit $2", [Kind, batch_size(Kind)], Context);
 rows(Kind, {Owner, Hash}, Context) ->
-    z_db:q("select owner_id,hash,path,size,used,case when kind='result' then data else null end from mediarunner_cache "
-        "where kind=$1 and complete and (owner_id,hash)>($2,$3) "
-        "order by owner_id,hash limit $4", [Kind, Owner, Hash, batch_size(Kind)], Context).
+    z_db:q("
+        select owner_id,hash,path,size,used,case when kind='result' then data else null end
+        from mediarunner_cache
+        where kind = $1
+          and complete
+          and (owner_id,hash) > ($2,$3)
+        order by owner_id,hash
+        limit $4", [Kind, Owner, Hash, batch_size(Kind)], Context).
 
 %% Stdout in a result manifest can be large; decode only one at a time.
 batch_size(<<"result">>) -> 1;
@@ -88,17 +111,34 @@ reconcile(<<"file">>, {Owner, Hash, Path, Size, _, _}, State, Context) ->
     end,
     %% The conditional delete rechecks access and pins at mutation time. Invalid
     %% metadata must be removed even if pinned: its bytes are already unavailable.
-    Deleted = z_db:q("delete from mediarunner_cache c where owner_id=$1 and kind='file' "
-        "and hash=$2 and complete and (not $3 or (used < $4 and not exists "
-        "(select 1 from mediarunner_job_file p where p.owner_id=c.owner_id and p.hash=c.hash))) "
-        "returning path", [Owner, Hash, Valid, maps:get(cutoff, State)], Context),
+    Deleted = z_db:q("
+        delete from mediarunner_cache c
+        where owner_id = $1
+          and kind = 'file'
+          and hash = $2
+          and complete
+          and (    not $3
+                or (    used < $4
+                    and not exists (
+                        select 1
+                        from mediarunner_job_file p
+                        where p.owner_id=c.owner_id
+                          and p.hash=c.hash
+                    )
+                )
+          )
+        returning path", [Owner, Hash, Valid, maps:get(cutoff, State)], Context),
     lists:foldl(fun({P}, Acc) ->
         remove_path(P, maps:get(cache_root, State), count(removed_rows, Acc))
     end, State, Deleted);
 reconcile(<<"result">>, {Owner, Hash, _, _, _, Data}, State, Context) ->
     Valid = valid_result(Data, Owner, Context),
-    N = z_db:q("delete from mediarunner_cache where owner_id=$1 and kind='result' "
-        "and hash=$2 and (not $3 or used < $4)",
+    N = z_db:q("
+        delete from mediarunner_cache
+        where owner_id=$1
+          and kind='result'
+          and hash=$2
+          and (not $3 or used < $4)",
         [Owner, Hash, Valid, maps:get(cutoff, State)], Context),
     State#{removed_rows => maps:get(removed_rows, State) + N}.
 
@@ -121,8 +161,13 @@ valid_result(Data, Owner, Context) ->
 result_file_present(#{<<"sha256">> := Hash, <<"size">> := Size}, Owner, Context)
     when is_binary(Hash), is_integer(Size), Size >= 0
 ->
-    z_db:q1("select count(*) from mediarunner_cache where owner_id=$1 "
-        "and kind='file' and hash=$2 and size=$3 and complete", [Owner, Hash, Size], Context) =:= 1;
+    z_db:q1("
+        select count(*) from mediarunner_cache
+        where owner_id = $1
+          and kind = 'file'
+          and hash = $2
+          and size = $3
+          and complete", [Owner, Hash, Size], Context) =:= 1;
 result_file_present(_, _, _) -> false.
 
 disk_phase(Name, State, Context) ->
@@ -130,8 +175,13 @@ disk_phase(Name, State, Context) ->
     case file:list_dir(Root) of
         {ok, Names} -> State#{phase => {disk, Name, Root, Names}};
         {error, Reason} ->
-            ?LOG_WARNING(#{text => <<"Cannot scan media runner directory">>,
-                in => mediarunner, result => error, reason => Reason, directory => Name}),
+            ?LOG_WARNING(#{
+                text => <<"Cannot scan media runner directory">>,
+                in => mediarunner,
+                result => error,
+                reason => Reason,
+                directory => Name
+            }),
             State#{phase => {disk, Name, Root, []}}
     end.
 
@@ -148,11 +198,17 @@ reconcile_disk(Name, Root, File, State, Context) ->
 
 registered("mediarunner", Path, _, Context) ->
     %% Includes incomplete reservations, so cleanup never races an active writer.
-    z_db:q1("select count(*) from mediarunner_cache where path=$1", [Path], Context) > 0;
+    z_db:q1("
+        select count(*)
+        from mediarunner_cache
+        where path=$1", [Path], Context) > 0;
 registered("mediarunner-work", _, File, Context) ->
     [Id | _] = binary:split(z_convert:to_binary(File), <<".">>),
-    z_db:q1("select count(*) from mediarunner_job where id=$1 "
-        "and status in ('starting','running')", [Id], Context) > 0.
+    z_db:q1("
+        select count(*)
+        from mediarunner_job
+        where id=$1
+          and status in ('starting','running')", [Id], Context) > 0.
 
 root(Name, Context) ->
     Dir = z_convert:to_binary(z_path:files_subdir_ensure(Name, Context)),
@@ -172,11 +228,16 @@ remove_path(Path, Root, State) ->
                 ok -> count(removed_files, State);
                 {error, enoent} -> State;
                 {error, Reason} ->
-                    ?LOG_WARNING(#{text => <<"Cannot remove abandoned media runner file">>,
-                        in => mediarunner, result => error, reason => Reason}),
+                    ?LOG_WARNING(#{
+                        text => <<"Cannot remove abandoned media runner file">>,
+                        in => mediarunner,
+                        result => error,
+                        reason => Reason
+                    }),
                     State
             end;
         false -> State
     end.
 
-count(Key, State) -> State#{Key => maps:get(Key, State) + 1}.
+count(Key, State) ->
+    State#{Key => maps:get(Key, State) + 1}.
