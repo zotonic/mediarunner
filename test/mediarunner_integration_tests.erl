@@ -55,7 +55,7 @@ run() ->
     Settings = [
         {media_runner_hostname, <<"localhost:18443">>},
         {media_runner_oauth2_key, Token},
-        {media_runner_wait_timeout, 10000},
+        {media_runner_wait_timeout, 10},
         {media_runner_local_fallback, false}
     ],
     Old = [{K, application:get_env(zotonic, K)} || {K, _} <- Settings],
@@ -181,7 +181,7 @@ large_result(Context) ->
     Size = Frames * 1024 * 1024 * 3 div 2,
     Output = z_convert:to_list(z_tempfile:new()) ++ ".raw",
     OldWait = application:get_env(zotonic, media_runner_wait_timeout),
-    application:set_env(zotonic, media_runner_wait_timeout, 180000),
+    application:set_env(zotonic, media_runner_wait_timeout, 180),
     HttpOptions = z_media_runner_protocol:http_options(30000),
     Jobs = ets:new(result_download_jobs, [public, set]),
     ok = meck:new(z_media_runner_protocol, [passthrough]),
