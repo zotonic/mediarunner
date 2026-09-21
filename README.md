@@ -41,7 +41,8 @@ Add these settings to the `zotonic` application section of the client's system
 {media_runner_local_fallback, false}
 ```
 
-The hostname may include a port; HTTPS and `/media-runner/jobs` are fixed.
+The hostname may include a port. JSON controls use `/api/model/mediarunner_job/`;
+file transfers use `/media-runner/jobs/`. HTTPS and these paths are fixed.
 Omit `media_runner_hostname` to keep processing local.
 
 Image, audio and video processing use the runner automatically. Custom code uses

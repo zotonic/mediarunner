@@ -71,7 +71,7 @@ runner adds the job ID as a query parameter. TLS certificates are verified excep
 configuration sets `{environment, development}`. In development, self-signed
 certificates are accepted for job requests, uploads, result downloads and callbacks.
 Other environments, including `test`, verify certificates and hostnames using the
-configured CA bundle or default trust store. HTTPS is required and redirects are
+normal certificate trust store. HTTPS is required and redirects are
 refused in every environment. Permit these outbound destinations in the host firewall.
 Media commands themselves have no network access. API credentials authorize shell
 commands within the selected sandbox profile; issue them only to trusted clients.
@@ -103,7 +103,7 @@ Add these entries to the `zotonic` application section in the system
 {media_runner_local_fallback, false}
 ```
 
-The client always uses `https://<hostname>/media-runner/jobs`; do not include a
+The client uses HTTPS model APIs for controls and `/media-runner/jobs` for file transfers; do not include a
 scheme or path in `media_runner_hostname`. An optional port is supported, for
 example `localhost:18443` for testing; the default is HTTPS port 443.
 This replaces the former `media_runner_url` setting.
@@ -129,7 +129,6 @@ Omitting `media_runner_hostname` retains local execution. Optional settings:
 | `media_runner_max_input_bytes` | `17179869184` | Maximum source file size (16 GiB); configure on both hosts. Sources are streamed. |
 | `media_runner_max_output_bytes` | `17179869184` | Maximum combined output size per job (16 GiB); configure on both hosts. Outputs are streamed. |
 | `media_runner_max_callback_bytes` | `135266304` | Maximum encoded callback JSON body (129 MiB), reserved per starting/running job. Configure on both hosts; file transfers have separate limits. |
-| `media_runner_cacertfile` | unset | Optional private CA bundle for runner and callback HTTPS connections. |
 | `media_runner_local_fallback` | `false` | Retry locally on transport errors, overload, HTTP 502–504 or callback timeout. |
 
 Authentication, invalid jobs and processing failures do not trigger local
@@ -139,7 +138,7 @@ processing must tolerate duplicate execution. The client only installs results
 from the request it is awaiting.
 
 Media tool discovery works without local binaries when remote processing is
-configured. The client probes the authenticated `/media-runner/jobs/capabilities`
+configured. The client probes the authenticated `/api/model/mediarunner_job/get/capabilities`
 endpoint for the runner's installed ImageMagick version. The runner executes its
 local binary with `-version`; preview and identify commands use that version,
 including the differences between ImageMagick 6 and 7. The old
@@ -237,15 +236,15 @@ Image inspection and media processing continue through the sandboxed runner.
 
 The client hashes source files incrementally using `z_crypto:hex_sha2_file/1` and submits only SHA-256 hashes,
 sizes and file metadata. No source bytes or client filesystem paths appear in job
-JSON. HTTP 412 identifies missing source hashes. For each missing hash:
+JSON. The `submit` model operation returns the `missing` outcome and source hashes. For each missing hash:
 
-1. `POST /media-runner/jobs/files/:hash` with `{"size": bytes}` reserves capacity.
-   HTTP 200 means the source is already cached, so no file is uploaded. HTTP 201
-   returns an `upload_token`. HTTP 409 means another request owns the reservation;
+1. `model/mediarunner_job/post/reserve` with `{"hash": sha256, "size": bytes}` reserves capacity.
+   Outcome `present` means no upload is needed. Outcome `upload` includes an
+   `upload_token`. Outcome `busy` means another request owns the reservation;
    the client waits and checks again instead of uploading a duplicate. If the
    upload fails, a waiting client can reserve the hash and take over with a fresh
    token. Late cleanup using an old token cannot remove the replacement upload.
-2. Only the reservation holder sends `PUT` to the same URL with an
+2. Only the reservation holder sends `PUT /media-runner/jobs/files/:hash` with an
    `application/octet-stream` body, `Content-Length`, and `X-Upload-Token`.
    Both requests require the regular OAuth2 bearer token and mediarunner permission.
 3. The runner streams into a private disk file, verifies its exact size and SHA-256,
@@ -290,7 +289,7 @@ and only then replaces the requested local outputs. A failed download leaves the
 existing outputs intact. Each result file has a content hash; the operation cache
 key described below is separate.
 
-`POST /media-runner/jobs/:id/results-received` acknowledges successful collection
+`model/mediarunner_job/post/received` with `{"id": job_id}` acknowledges successful collection
 and releases the output pins. Receiving the callback alone does not release them.
 Abandoned downloads remain protected for `mediarunner_result_retention`; after that
 they become eligible for LRU eviction. Cached operation manifests are reused only
@@ -306,10 +305,28 @@ Eviction rechecks access times and job pins when deleting each candidate. Result
 publication uses worker capacity independently of incoming upload slots, while
 still obeying the shared disk and entry budgets.
 
-The client bounds protocol response bodies and headers to 64 KiB, including error
-responses and chunked transfers. Result downloads reject error statuses before
-reading the body and stream successful responses to disk with size/hash checks.
-Each HTTPS transfer has an overall deadline and its own connection.
+Control messages use `z_fetch:fetch_json` and the standard model API:
+
+| Model operation | Payload | Result |
+| --- | --- | --- |
+| `mediarunner_job/get/capabilities` | `{}` | Installed ImageMagick details |
+| `mediarunner_job/post/submit` | Job manifest | `accepted`, `missing`, or failure outcome |
+| `mediarunner_job/post/reserve` | `hash`, `size` | `present`, `upload` with token, or `busy` |
+| `mediarunner_job/post/received` | Job `id` | `received` |
+
+HTTP URLs prefix these operations with `/api/model/`; MQTT topics prefix them with
+`model/`. HTTP clients unwrap the standard `status`/`result` model envelope.
+Authorization and validation live in the model for both transports. Client and runner
+must be upgraded together when switching from the old controller protocol.
+
+OTP `httpc` streams file uploads and successful result downloads; size/hash checks
+protect publication. Trusted peers' small JSON/error responses are buffered, with
+control responses limited by the fetcher's 64 KiB setting. Redirects are disabled.
+File transfers use dedicated connections outside httpc's persistent-session queues;
+JSON uses z_url_fetch's separate pool (ten sessions per host). Large transfers
+therefore cannot block control requests. Downloads have an absolute deadline and request cancellation.
+TLS uses normal certificate trust, with verification disabled only in development;
+server certificates remain managed by Zotonic's SSL modules.
 
 The result key hashes source hashes, normalized command/parameters, file extensions,
 profile, timeout and protocol version, together with execution code, tool stamps,

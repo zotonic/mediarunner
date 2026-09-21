@@ -20,7 +20,7 @@
 -module(controller_mediarunner_file).
 
 -moduledoc("
-POST reserves a missing source hash without sending file bytes; a cache hit returns 200.
+The mediarunner_job model reserves source hashes before any file bytes are sent.
 Only the reservation holder may PUT the raw file, once. Requests use the normal OAuth2
 login and mediarunner permission. Source contents never pass through JSON or PostgreSQL.
 Incomplete uploads remain invisible and are removed on failure, expiry or site restart.
@@ -30,11 +30,14 @@ Incomplete uploads remain invisible and are removed on failure, expiry or site r
     is_authorized/1, process/4]).
 -include_lib("zotonic_core/include/zotonic.hrl").
 
-allowed_methods(Context) -> {[<<"POST">>, <<"PUT">>], Context}.
+allowed_methods(Context) -> {[<<"PUT">>], Context}.
 content_types_accepted(Context) ->
-    {[{<<"application">>, <<"json">>, []}, {<<"application">>, <<"octet-stream">>, []}], Context}.
+    {[{<<"application">>, <<"octet-stream">>, []}], Context}.
 content_types_provided(Context) -> {[{<<"application">>, <<"json">>, []}], Context}.
-is_authorized(Context) -> controller_mediarunner_jobs:is_authorized(Context).
+is_authorized(Context) -> case m_mediarunner_job:authorize(Context) of
+        ok -> {true, Context};
+        {error, _} -> {{halt, 403}, Context}
+    end.
 
 process(Method, _, _, Context) ->
     Hash = z_context:get_q(<<"hash">>, Context),
@@ -47,32 +50,11 @@ valid_hash(Hash) when is_binary(Hash), byte_size(Hash) =:= 64 ->
     re:run(Hash, <<"^[0-9a-f]{64}$">>, [{capture, none}]) =:= match;
 valid_hash(_) -> false.
 
-process_file(<<"POST">>, Hash, Context) ->
-    {Body, Context1} = cowmachine_req:req_body(1024, Context),
-    try z_json:decode(Body) of
-        #{<<"size">> := Size} when is_integer(Size), Size >= 0 ->
-            case Size =< z_media_runner_protocol:input_limit() of
-                true -> reserve(Hash, Size, Context1);
-                false -> {{halt, 413}, Context1}
-            end;
-        _ -> {{halt, 400}, Context1}
-    catch
-        _:_ -> {{halt, 400}, Context1}
-    end;
 process_file(<<"PUT">>, Hash, Context) ->
     Token = cowmachine_req:get_req_header(<<"x-upload-token">>, Context),
     case valid_hash(Token) of
         true -> receive_file(Hash, Token, Context);
         false -> {{halt, 400}, Context}
-    end.
-
-reserve(Hash, Size, Context) ->
-    case mediarunner_queue:upload({reserve, Hash, Size}, z_acl:user(Context), Context) of
-        {ok, present} -> {{halt, 200}, Context};
-        {ok, Token} ->
-            Body = z_json:encode(#{<<"upload_token">> => Token}),
-            {{halt, 201}, cowmachine_req:set_resp_body(Body, Context)};
-        {error, Reason} -> {{halt, status(Reason)}, Context}
     end.
 
 receive_file(Hash, Token, Context) ->

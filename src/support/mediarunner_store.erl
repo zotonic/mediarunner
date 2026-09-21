@@ -251,9 +251,9 @@ result(Id, Result, Cached, Context) ->
     end, Context).
 
 -spec delivered(binary(), term(), z:context()) -> ok.
-delivered(Id, {ok, Code}, Context) when Code >= 200, Code < 300 ->
+delivered(Id, ok, Context) ->
     finish_delivery(Id, <<"delivered">>, Context);
-delivered(Id, {ok, 410}, Context) ->
+delivered(Id, {error, {http_status, 410}}, Context) ->
     finish_delivery(Id, <<"expired">>, Context);
 delivered(Id, _, Context) ->
     [{Attempts, Expires}] = z_db:q(

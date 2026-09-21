@@ -1,6 +1,6 @@
 %% @author Marc Worrell <marc@worrell.nl>
 %% @copyright 2026 Marc Worrell
-%% @doc Serve authenticated result downloads and release cache pins after client receipt.
+%% @doc Stream authenticated result downloads from the consumer’s cache.
 %% @end
 
 %% Copyright 2026 Marc Worrell
@@ -22,23 +22,15 @@
 -export([allowed_methods/1, content_types_provided/1, content_types_accepted/1,
     is_authorized/1, process/4]).
 
-allowed_methods(Context) ->
-    case z_context:get(receipt, Context, false) of
-        true -> {[<<"POST">>], Context};
-        false -> {[<<"GET">>], Context}
-    end.
+allowed_methods(Context) -> {[<<"GET">>], Context}.
 
 content_types_provided(Context) -> {[{<<"application">>, <<"octet-stream">>, []}], Context}.
 content_types_accepted(Context) -> {[{<<"application">>, <<"json">>, []}], Context}.
-is_authorized(Context) -> controller_mediarunner_jobs:is_authorized(Context).
+is_authorized(Context) -> controller_mediarunner_file:is_authorized(Context).
 
-%% @doc Serve owner-scoped files with bounded memory, or acknowledge collection of all job outputs.
-process(_, _, _, Context0) ->
-    Context = z_context:set_nocache_headers(Context0),
-    case z_context:get(receipt, Context, false) of
-        true -> receipt(Context);
-        false -> download(Context)
-    end.
+%% @doc Serve owner-scoped result files with bounded memory.
+process(_, _, _, Context) ->
+    download(z_context:set_nocache_headers(Context)).
 
 download(Context) ->
     Hash = z_context:get_q(<<"hash">>, Context),
@@ -53,14 +45,4 @@ download(Context) ->
                 {error, _} -> {{halt, 404}, Context}
             end;
         {error, missing} -> {{halt, 404}, Context}
-    end.
-
-receipt(Context) ->
-    Id = z_context:get_q(<<"id">>, Context),
-    case z_db:q1("select count(*) from mediarunner_job where id=$1 and owner_id=$2 and status='completed'",
-            [Id, z_acl:user(Context)], Context) of
-        1 ->
-            ok = mediarunner_cache:release(Id, Context),
-            {{halt, 204}, Context};
-        0 -> {{halt, 404}, Context}
     end.
