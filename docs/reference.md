@@ -125,11 +125,14 @@ Omitting `media_runner_hostname` retains local execution. Optional settings:
 
 | System setting | Default | Meaning |
 | --- | --- | --- |
-| `media_runner_wait_timeout` | `3900000` | Job expiry and callback wait in milliseconds; allow for uploads, queuing and processing, and keep below 24 hours. |
+| `media_runner_wait_timeout` | `3900` | Job expiry and callback wait in seconds (65 minutes); allow for uploads, queuing and processing, and keep below 24 hours. |
 | `media_runner_max_input_bytes` | `17179869184` | Maximum source file size (16 GiB); configure on both hosts. Sources are streamed. |
 | `media_runner_max_output_bytes` | `17179869184` | Maximum combined output size per job (16 GiB); configure on both hosts. Outputs are streamed. |
 | `media_runner_max_callback_bytes` | `135266304` | Maximum encoded callback JSON body (129 MiB), reserved per starting/running job. Configure on both hosts; file transfers have separate limits. |
 | `media_runner_local_fallback` | `false` | Retry locally on transport errors, overload, HTTP 502–504 or callback timeout. |
+
+When upgrading from the millisecond setting, divide any configured
+`media_runner_wait_timeout` value by 1000; for example, `3900000` becomes `3900`.
 
 Authentication, invalid jobs and processing failures do not trigger local
 fallback. Local fallback follows the existing `exec_sandbox` policy and requires
