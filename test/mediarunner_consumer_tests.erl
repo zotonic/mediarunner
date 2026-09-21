@@ -51,8 +51,8 @@ run(Url, Context) ->
         ?assertNot(z_acl:is_allowed(use, mod_admin, UserContext)),
         ?assertEqual({error, eacces}, m_mediarunner_consumer:create(<<"Denied">>, UserContext)),
         %% Through real HTTP middleware: successful authentication and authorization
-        %% reach job validation (400), instead of 401 or 403.
-        ?assertEqual({ok, 400}, z_media_runner_protocol:post(Url, Token, #{})),
+        %% reach the model’s job validation instead of an access-denied response.
+        ?assertEqual(ok, z_media_runner_protocol:post(Url, Token, #{})),
         ?assertNotEqual(1, UserId),
         render_checks(Consumer, Admin, UserContext, Anonymous),
         rollback_check(Admin),
@@ -125,7 +125,7 @@ management_checks(Url, #{app_id := Id, user_id := UserId, token := OldToken}, Ad
     ?assertEqual({error, invalid_name}, m_mediarunner_consumer:update(Id, <<" ">>, false, Admin)),
     {ok, Renamed} = m_mediarunner_consumer:update(Id, <<"Renamed <website>">>, false, Admin),
     ?assertNot(maps:is_key(token, Renamed)),
-    ?assertEqual({ok, 400}, z_media_runner_protocol:post(Url, OldToken, #{})),
+    ?assertEqual(ok, z_media_runner_protocol:post(Url, OldToken, #{})),
     {ok, Row} = m_mediarunner_consumer:get(Id, Admin),
     ?assertEqual(<<"Renamed <website>">>, maps:get(<<"description">>, Row)),
     lists:foreach(fun(Tpl) ->
@@ -140,10 +140,10 @@ management_checks(Url, #{app_id := Id, user_id := UserId, token := OldToken}, Ad
     rotation_rollback(Id, OldToken, Admin),
     {ok, #{token := NewToken}} = m_mediarunner_consumer:update(Id, <<"Renamed">>, true, Admin),
     ?assertNotEqual(OldToken, NewToken),
-    ?assertEqual({ok, 401}, z_media_runner_protocol:post(Url, OldToken, #{})),
-    ?assertEqual({ok, 400}, z_media_runner_protocol:post(Url, NewToken, #{})),
+    ?assertEqual({error, {http_status, 403}}, z_media_runner_protocol:post(Url, OldToken, #{})),
+    ?assertEqual(ok, z_media_runner_protocol:post(Url, NewToken, #{})),
     ?assertEqual(ok, m_mediarunner_consumer:delete(Id, Admin)),
-    ?assertEqual({ok, 401}, z_media_runner_protocol:post(Url, NewToken, #{})),
+    ?assertEqual({error, {http_status, 403}}, z_media_runner_protocol:post(Url, NewToken, #{})),
     ?assertEqual({error, enoent}, m_mediarunner_consumer:get(Id, Admin)),
     ?assertNot(m_rsc:exists(UserId, Admin)),
     ?assertEqual({error, enoent}, m_mediarunner_consumer:delete(Id, Admin)).

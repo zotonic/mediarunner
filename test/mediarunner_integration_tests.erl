@@ -50,11 +50,11 @@ run() ->
     ),
     {ok, ReadOnly} = m_oauth2:encode_bearer_token(ReadOnlyId, 3600, Context),
     ok = z_notifier:observe(ssl_options, {?MODULE, ssl_options}, self(), Context),
-    Cert = tls_path("ca.crt"),
+    OldAuthorities = tls_certificate_check:trusted_authorities(),
+    ok = tls_certificate_check:override_trusted_authorities({file, tls_path("ca.crt")}),
     Settings = [
         {media_runner_hostname, <<"localhost:18443">>},
         {media_runner_oauth2_key, Token},
-        {media_runner_cacertfile, Cert},
         {media_runner_wait_timeout, 10000},
         {media_runner_local_fallback, false}
     ],
@@ -64,8 +64,10 @@ run() ->
     application:set_env(mediarunner, mediarunner_callback_urls, [Callback]),
     try
         development_tls(Url, Token),
-        ?assertEqual({ok, 401}, z_media_runner_protocol:post(<<Url/binary, "/capabilities">>, <<"invalid">>, #{})),
-        ?assertEqual({ok, 403}, z_media_runner_protocol:post(<<Url/binary, "/capabilities">>, ReadOnly, #{})),
+        ?assertEqual({error, {http_status, 403}}, z_media_runner_protocol:post(z_media_runner_protocol:control_url(Url, <<"capabilities">>), <<"invalid">>, #{})),
+        ?assertEqual({error, {http_status, 403}}, z_media_runner_protocol:post(z_media_runner_protocol:control_url(Url, <<"capabilities">>), ReadOnly, #{})),
+        {ok, #{<<"status">> := <<"ok">>, <<"result">> := #{imagemagick := _}}} =
+            z_mqtt:call(<<"model/mediarunner_job/get/capabilities">>, #{}, Context),
         z_media_imagemagick:clear_cache(),
         LocalImageMagick = z_media_imagemagick:local(),
         RemoteImageMagick = z_media_imagemagick:selected(),
@@ -78,16 +80,16 @@ run() ->
         ?assertEqual(
             {error, media_runner_configuration}, z_exec:run(file, <<"printf no-site">>, #{})
         ),
-        ?assertEqual({ok, 401}, z_media_runner_protocol:post(Url, <<"invalid-token">>, #{})),
-        ?assertEqual({ok, 403}, z_media_runner_protocol:post(Url, ReadOnly, #{})),
-        ?assertEqual({ok, 400}, z_media_runner_protocol:post(Url, Token, #{})),
+        ?assertEqual({error, {http_status, 403}}, z_media_runner_protocol:post(z_media_runner_protocol:control_url(Url, <<"submit">>), <<"invalid-token">>, #{})),
+        ?assertEqual({error, {http_status, 403}}, z_media_runner_protocol:post(z_media_runner_protocol:control_url(Url, <<"submit">>), ReadOnly, #{})),
+        ?assertEqual(ok, z_media_runner_protocol:post(z_media_runner_protocol:control_url(Url, <<"submit">>), Token, #{})),
         ?assertEqual(
             {error, eacces},
             m_mediarunner:m_get([<<"status">>], undefined, z_context:new(mediarunner))
         ),
         mediarunner_queue_tests:run(Context),
         ?assertEqual({ok, <<"roundtrip">>}, z_exec:run(file, <<"printf roundtrip">>, #{}, Context)),
-        mediarunner_consumer_tests:run(Url, Context),
+        mediarunner_consumer_tests:run(z_media_runner_protocol:control_url(Url, <<"submit">>), Context),
         mediarunner_statistics_tests:run(Context),
         upload_checks(Url, Token, ReadOnly, Context),
         lists:foreach(fun(Mode) -> concurrent_upload(Mode, Context) end, [success, corrupt, killed]),
@@ -113,6 +115,7 @@ run() ->
         ),
         ok
     after
+        tls_certificate_check:override_trusted_authorities(OldAuthorities),
         z_notifier:detach(ssl_options, self(), Context),
         m_oauth2:delete_app(App, Context),
         lists:foreach(fun({K, V}) -> restore(zotonic, K, V) end, Old),
@@ -122,16 +125,16 @@ run() ->
 %% The CI certificate is signed by a private CA, outside the default trust store.
 development_tls(Url, Token) ->
     OldEnvironment = application:get_env(zotonic, environment),
-    OldCa = application:get_env(zotonic, media_runner_cacertfile),
+    OldCa = tls_certificate_check:trusted_authorities(),
     try
-        application:unset_env(zotonic, media_runner_cacertfile),
+        tls_certificate_check:override_trusted_authorities(certifi:cacerts()),
         application:set_env(zotonic, environment, production),
-        ?assertMatch({error, _}, z_media_runner_protocol:post(Url, Token, #{})),
+        ?assertMatch({error, _}, z_media_runner_protocol:post(z_media_runner_protocol:control_url(Url, <<"submit">>), Token, #{})),
         application:set_env(zotonic, environment, development),
-        ?assertEqual({ok, 400}, z_media_runner_protocol:post(Url, Token, #{}))
+        ?assertEqual(ok, z_media_runner_protocol:post(z_media_runner_protocol:control_url(Url, <<"submit">>), Token, #{}))
     after
         restore(zotonic, environment, OldEnvironment),
-        restore(zotonic, media_runner_cacertfile, OldCa)
+        tls_certificate_check:override_trusted_authorities(OldCa)
     end.
 
 sandbox_dashboard(Context) ->
@@ -180,13 +183,27 @@ large_result(Context) ->
     OldWait = application:get_env(zotonic, media_runner_wait_timeout),
     application:set_env(zotonic, media_runner_wait_timeout, 180000),
     HttpOptions = z_media_runner_protocol:http_options(30000),
+    Jobs = ets:new(result_download_jobs, [public, set]),
     ok = meck:new(z_media_runner_protocol, [passthrough]),
+    ok = meck:expect(z_media_runner_protocol, request, fun(U, T, Payload) ->
+        case Payload of
+            #{<<"id">> := JobId, <<"profile">> := <<"ffmpeg">>} -> ets:insert(Jobs, {current, JobId});
+            _ -> ok
+        end,
+        Reply = meck:passthrough([U, T, Payload]),
+        case binary:match(U, <<"/post/received">>) of
+            nomatch -> ok;
+            _ -> ?assertEqual({ok, #{<<"outcome">> => <<"received">>}}, Reply)
+        end,
+        Reply
+    end),
     ok = meck:expect(z_media_runner_protocol, unpack, fun(Result, Options) ->
         ?assert(byte_size(z_json:encode(Result)) < 2048),
         [#{<<"size">> := Size, <<"sha256">> := Hash, <<"url">> := Url} = F] = maps:get(<<"files">>, Result),
         ?assertNot(maps:is_key(<<"data">>, F)),
-        ?assert(z_db:q1("select count(*) from mediarunner_job_file where hash=$1", [Hash], Context) > 0),
-        {ok, {{_, 401, _}, _, _}} = httpc:request(get,
+        ?assert(z_db:q1("select count(*) from mediarunner_job_file where hash=$1 and job_id=$2",
+            [Hash, ets:lookup_element(Jobs, current, 2)], Context) > 0),
+        {ok, {{_, 403, _}, _, _}} = httpc:request(get,
             {binary_to_list(Url), [{"authorization", "Bearer invalid"}]},
             HttpOptions, [], zotonic),
         ?assertEqual({error, missing}, mediarunner_cache:read(F, -1, Context)),
@@ -197,7 +214,8 @@ large_result(Context) ->
             integer_to_list(Frames), " -threads 1 -pix_fmt yuv420p -f rawvideo ", z_filelib:os_filename(Output)],
         ?assertEqual({ok, <<>>}, z_exec:run(ffmpeg, Command, #{write => [Output], timeout => 180000}, Context)),
         {ok, Size, Hash} = z_media_runner_protocol:hash_file(Output),
-        ?assertEqual(0, z_db:q1("select count(*) from mediarunner_job_file where hash=$1", [Hash], Context)),
+        ?assertEqual(0, z_db:q1("select count(*) from mediarunner_job_file where hash=$1 and job_id=$2",
+            [Hash, ets:lookup_element(Jobs, current, 2)], Context)),
         ?assertEqual(0, z_db:q1("select octet_length(data) from mediarunner_cache where kind='file' and owner_id=1 and hash=$1", [Hash], Context)),
         Hits = z_db:q1("select count(*) from mediarunner_job where profile='ffmpeg' and cache_hit", Context),
         ok = file:delete(Output),
@@ -213,6 +231,7 @@ large_result(Context) ->
         io:format("Streamed and verified ~B result bytes~n", [Size])
     after
         meck:unload(z_media_runner_protocol),
+        ets:delete(Jobs),
         restore(zotonic, media_runner_wait_timeout, OldWait),
         file:delete(Output)
     end.
@@ -273,10 +292,10 @@ restart_recovery(Url, Token, Callback, Context) ->
         end,
         100
     ),
-    ?assertEqual({ok, 202}, z_media_runner_protocol:post(Url, Token, Job)),
+    ?assertEqual(ok, z_media_runner_protocol:post(z_media_runner_protocol:control_url(Url, <<"submit">>), Token, Job)),
     ?assertEqual(
-        {ok, 409},
-        z_media_runner_protocol:post(Url, Token, Job#{<<"command">> => <<"printf changed">>})
+        {ok, #{<<"outcome">> => <<"conflict">>}},
+        z_media_runner_protocol:request(z_media_runner_protocol:control_url(Url, <<"submit">>), Token, Job#{<<"command">> => <<"printf changed">>})
     ),
     ?assertEqual(1, z_db:q1("select count(*) from mediarunner_job where id=$1", [Id], Context)).
 
@@ -475,20 +494,21 @@ upload_checks(Url, Token, ReadOnly, Context) ->
     ok = file:close(Fd),
     {ok, Size, Hash} = z_media_runner_protocol:hash_file(Path),
     FileUrl = <<Url/binary, "/files/", Hash/binary>>,
+    ReserveUrl = z_media_runner_protocol:control_url(Url, <<"reserve">>),
     try
-        ?assertEqual({ok, 401}, z_media_runner_protocol:post(FileUrl, <<"invalid">>, #{<<"size">> => Size})),
-        ?assertEqual({ok, 403}, z_media_runner_protocol:post(FileUrl, ReadOnly, #{<<"size">> => Size})),
-        {ok, 201, Body} = z_media_runner_protocol:request(FileUrl, Token, #{<<"size">> => Size}),
-        #{<<"upload_token">> := Lease} = z_json:decode(Body),
+        ?assertEqual({error, {http_status, 403}}, z_media_runner_protocol:post(ReserveUrl, <<"invalid">>, #{<<"hash">> => Hash, <<"size">> => Size})),
+        ?assertEqual({error, {http_status, 403}}, z_media_runner_protocol:post(ReserveUrl, ReadOnly, #{<<"hash">> => Hash, <<"size">> => Size})),
+        {ok, Body} = z_media_runner_protocol:request(ReserveUrl, Token, #{<<"hash">> => Hash, <<"size">> => Size}),
+        #{<<"upload_token">> := Lease} = Body,
         %% Another job cannot upload the same hash while this reservation is live.
-        ?assertEqual({ok, 409}, z_media_runner_protocol:post(FileUrl, Token, #{<<"size">> => Size})),
+        ?assertMatch({ok, #{<<"outcome">> := <<"busy">>}}, z_media_runner_protocol:request(ReserveUrl, Token, #{<<"hash">> => Hash, <<"size">> => Size})),
         ?assertEqual({error, missing}, mediarunner_cache:read(#{<<"sha256">> => Hash}, 1, Context)),
         ?assertEqual({ok, 204}, z_media_runner_protocol:upload(FileUrl, Token, Lease, Path, Size)),
         {ok, {file, Cached}} = mediarunner_cache:read(#{<<"sha256">> => Hash}, 1, Context),
         ?assertEqual({ok, Size, Hash}, z_media_runner_protocol:hash_file(Cached)),
         ?assertEqual(0, z_db:q1("select octet_length(data) from mediarunner_cache where owner_id=1 and hash=$1",
             [Hash], Context)),
-        ?assertEqual({ok, 200}, z_media_runner_protocol:post(FileUrl, Token, #{<<"size">> => Size})),
+        ?assertMatch({ok, #{<<"outcome">> := <<"present">>}}, z_media_runner_protocol:request(ReserveUrl, Token, #{<<"hash">> => Hash, <<"size">> => Size})),
         %% Both commands refer to the cached hash; source bytes are never in the job.
         Options = #{read => [Path]},
         ok = meck:new(z_media_runner_protocol, [passthrough, no_link]),
@@ -503,8 +523,8 @@ upload_checks(Url, Token, ReadOnly, Context) ->
         %% A body whose bytes do not match its reserved hash is never published.
         BadHash = binary:encode_hex(crypto:hash(sha256, <<"different bytes">>), lowercase),
         BadUrl = <<Url/binary, "/files/", BadHash/binary>>,
-        {ok, 201, BadBody} = z_media_runner_protocol:request(BadUrl, Token, #{<<"size">> => 1}),
-        #{<<"upload_token">> := BadLease} = z_json:decode(BadBody),
+        {ok, BadBody} = z_media_runner_protocol:request(ReserveUrl, Token, #{<<"hash">> => BadHash, <<"size">> => 1}),
+        #{<<"upload_token">> := BadLease} = BadBody,
         ?assertEqual({ok, 400}, z_media_runner_protocol:upload(BadUrl, Token, BadLease, Path, 1)),
         ?assertEqual({error, missing}, mediarunner_cache:read(#{<<"sha256">> => BadHash}, 1, Context)),
         ?assertEqual(0, z_db:q1("select count(*) from mediarunner_cache where hash=$1", [BadHash], Context)),
@@ -515,7 +535,7 @@ upload_checks(Url, Token, ReadOnly, Context) ->
     end.
 
 %% Use real client jobs and HTTP requests. Pause the first PUT after its claim,
-%% then wait until the second client observes 409 before allowing any progress.
+%% then wait until the second client observes busy before allowing any progress.
 concurrent_upload(Mode, Context) ->
     Parent = self(),
     Path = z_convert:to_list(z_tempfile:new()) ++ "-race.bin",
@@ -531,7 +551,7 @@ concurrent_upload(Mode, Context) ->
         ok = meck:expect(z_media_runner_protocol, request, fun(U, T, Payload) ->
             Reply = meck:passthrough([U, T, Payload]),
             case Reply of
-                {ok, 409, _} -> Parent ! {race_waiting, self()};
+                {ok, #{<<"outcome">> := <<"busy">>}} -> Parent ! {race_waiting, self()};
                 _ -> ok
             end,
             Reply
@@ -676,7 +696,7 @@ fallback(Context) ->
     application:set_env(zotonic, media_runner_hostname, <<"localhost:18443">>),
     application:set_env(zotonic, media_runner_oauth2_key, <<"invalid-token">>),
     ?assertEqual(
-        {error, {media_runner_http, 401}},
+        {error, {media_runner_http, 403}},
         z_exec:run(file, <<"printf must-not-fallback">>, #{}, Context)
     ).
 await(_, 0) ->

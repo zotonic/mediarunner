@@ -35,12 +35,12 @@ request_boundary_test() ->
         <<"callback_token">> => base64:encode(crypto:strong_rand_bytes(32)),
         <<"expires">> => erlang:system_time(second) + 60
     },
-    ?assertEqual(ok, controller_mediarunner_jobs:validate(Job, [Url])),
-    ?assertEqual(ok, controller_mediarunner_jobs:validate(Job, any)),
-    ?assertEqual(ok, controller_mediarunner_jobs:validate(Job, undefined)),
+    ?assertEqual(ok, m_mediarunner_job:validate(Job, [Url])),
+    ?assertEqual(ok, m_mediarunner_job:validate(Job, any)),
+    ?assertEqual(ok, m_mediarunner_job:validate(Job, undefined)),
     lists:foreach(
         fun(J) ->
-            ?assertEqual({error, invalid_job}, controller_mediarunner_jobs:validate(J, [Url]))
+            ?assertEqual({error, invalid_job}, m_mediarunner_job:validate(J, [Url]))
         end,
         [
             Job#{<<"callback_url">> => <<"https://127.0.0.1/private">>},
@@ -49,7 +49,7 @@ request_boundary_test() ->
             Job#{<<"callback_token">> => <<"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\nHeader: injected">>}
         ]
     ),
-    ?assertEqual({error, invalid_job}, controller_mediarunner_jobs:validate(Job, [])).
+    ?assertEqual({error, invalid_job}, m_mediarunner_job:validate(Job, [])).
 
 capacity_test() ->
     GiB = 1073741824,
@@ -96,7 +96,13 @@ chart_snapshot_test() ->
 
 authorization_context_test() ->
     Anonymous = #context{site = zotonic_site_testsandbox},
-    ?assertMatch({{halt, 401}, _}, controller_mediarunner_jobs:is_authorized(Anonymous)),
+    ?assertEqual({error, eacces}, m_mediarunner_job:authorize(Anonymous)),
     ReadOnly = Anonymous#context{user_id = 123, acl_is_read_only = true},
-    ?assertMatch({{halt, 403}, _}, controller_mediarunner_jobs:is_authorized(ReadOnly)),
-    ?assertMatch({true, _}, controller_mediarunner_jobs:is_authorized(z_acl:sudo(Anonymous))).
+    ?assertEqual({error, eacces}, m_mediarunner_job:authorize(ReadOnly)),
+    ?assertEqual(ok, m_mediarunner_job:authorize(z_acl:sudo(Anonymous))),
+    lists:foreach(fun(Context) ->
+        ?assertEqual({error, eacces}, m_mediarunner_job:m_get([<<"capabilities">>], undefined, Context)),
+        lists:foreach(fun(Operation) ->
+            ?assertEqual({error, eacces}, m_mediarunner_job:m_post([Operation], #{payload => #{}}, Context))
+        end, [<<"submit">>, <<"reserve">>, <<"received">>])
+    end, [Anonymous, ReadOnly]).

@@ -39,7 +39,7 @@ openssl x509 -req -days 1 -in "$ci_dir/tls/server.csr" \
     -extfile "$ci_dir/tls/server.ext" -out "$ci_dir/tls/server.crt" 2>/dev/null
 
 # Compile tests explicitly so a failed compilation cannot silently skip a suite.
-erl -noshell -pa _build/default/lib/*/ebin -eval '
+erl -noshell -pa _build/default/lib/*/ebin _build/default/checkouts/*/ebin -eval '
     Out = filename:join(os:getenv("MEDIARUNNER_CI_DIR"), "ebin"),
     Files = filelib:wildcard("apps_user/mediarunner/test/*.erl") ++
         ["apps/zotonic_core/test/z_media_runner_tests.erl", "apps/zotonic_core/test/z_media_imagemagick_tests.erl"],
@@ -50,11 +50,11 @@ erl -noshell -pa _build/default/lib/*/ebin -eval '
         end
     end, Files) of true -> halt(0); false -> halt(1) end.'
 
-erl -noshell -pa _build/default/lib/*/ebin "$ci_dir/ebin" -eval '
+erl -noshell -pa _build/default/lib/*/ebin _build/default/checkouts/*/ebin "$ci_dir/ebin" -eval '
     case eunit:test([mediarunner_tests, z_media_runner_tests, z_media_imagemagick_tests], [verbose]) of
         ok -> halt(0);
         _ -> halt(1)
     end.'
 
 # A separate VM starts the complete site; the integration test uses a disposable schema.
-erl -noshell -pa _build/default/lib/*/ebin "$ci_dir/ebin" -eval 'spawn(fun mediarunner_ci:run/0).'
+erl -noshell -pa _build/default/lib/*/ebin _build/default/checkouts/*/ebin "$ci_dir/ebin" -eval 'spawn(fun mediarunner_ci:run/0).'

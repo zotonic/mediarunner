@@ -243,7 +243,7 @@ work(
                     <<Url/binary, "?id=", Id/binary>>, Token, z_json:decode(Result)
                 );
             false ->
-                {ok, 410}
+                {error, {http_status, 410}}
         end,
     mediarunner_store:delivered(Id, Reply, Context).
 
