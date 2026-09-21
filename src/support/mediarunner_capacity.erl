@@ -1,6 +1,6 @@
 %% @author Marc Worrell <marc@worrell.nl>
 %% @copyright 2026 Marc Worrell
-%% @doc Size processing capacity from CPU and memory limits and configure jobs regulation.
+%% @doc Size workers from CPU and memory, regulate jobs, and cap cache use by disk capacity.
 %% @end
 
 %% Copyright 2026 Marc Worrell
@@ -22,15 +22,47 @@
 -moduledoc("
 Conservative processing capacity from online schedulers and available memory, capped by
 container quotas when exposed. Keep one CPU and 25% of available memory for Zotonic and
-the OS. Unknown memory means one worker.
+the OS. Unknown memory means one worker. Cache admission reserves filesystem headroom.
 ").
 -export([
     snapshot/1,
+    cache_disk/1,
+    cache_limit/4,
     workers/3,
     queue/1,
     queue/2,
     configure/2
 ]).
+
+%% @doc Read the filesystem containing the actual cache directory, including symlink targets.
+%% disksup invokes df on Unix, so quote paths containing spaces or shell characters.
+-spec cache_disk(file:filename_all()) -> {non_neg_integer(), non_neg_integer()}.
+cache_disk(Path) ->
+    try
+        DiskPath = case os:type() of
+            {unix, _} -> z_filelib:os_filename(z_convert:to_list(Path));
+            _ -> z_convert:to_list(Path)
+        end,
+        case disksup:get_disk_info(DiskPath) of
+            [{_, TotalKiB, AvailableKiB, _}] when TotalKiB > 0 ->
+                {TotalKiB * 1024, max(0, AvailableKiB) * 1024};
+            _ ->
+                {0, 0}
+        end
+    catch
+        _:_ ->
+            {0, 0}
+    end.
+
+%% @doc Cap cache growth while leaving 10% of the device, or 1 GiB, free.
+%% Stored counts only complete disk files: outstanding uploads still need their
+%% full reservation, and database manifests are not reclaimable disk files.
+%% Unknown capacity prevents new reservations rather than assuming unlimited disk.
+-spec cache_limit(non_neg_integer(), non_neg_integer(), non_neg_integer(), non_neg_integer()) ->
+    non_neg_integer().
+cache_limit(Configured, Total, Available, Stored) ->
+    Reserve = max(1073741824, Total div 10),
+    max(0, min(Configured, min(Total - Reserve, Stored + Available - Reserve))).
 
 -spec snapshot(z:context()) -> map().
 snapshot(Context) ->

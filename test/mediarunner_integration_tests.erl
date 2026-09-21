@@ -390,6 +390,26 @@ cache_checks(Context) ->
             ({undefined}) -> ok;
             ({P}) -> file:delete(P)
         end, z_db:q("delete from mediarunner_cache returning path", Context)),
+        %% Free disk space must constrain even a very large configured cache.
+        %% Pending uploads have no complete file to credit against disk usage.
+        GiB = 1073741824,
+        application:set_env(mediarunner, mediarunner_cache_max_bytes, 100 * GiB),
+        ok = meck:new(mediarunner_capacity, [passthrough, no_link]),
+        try
+            ok = meck:expect(mediarunner_capacity, cache_disk, fun(_) ->
+                {10 * GiB, GiB + 150}
+            end),
+            ?assertMatch(#{limit := 150}, mediarunner_cache:stats(Context)),
+            HashA = maps:get(<<"sha256">>, A),
+            HashB = maps:get(<<"sha256">>, B),
+            {ok, Lease} = mediarunner_cache:upload({reserve, HashA, 100}, Owner, Context),
+            ?assertEqual({error, full}, mediarunner_cache:upload({reserve, HashB, 100}, Owner, Context)),
+            ok = mediarunner_cache:upload({abort, HashA, Lease}, Owner, Context),
+            ok = meck:expect(mediarunner_capacity, cache_disk, fun(_) -> {0, 0} end),
+            ?assertEqual({error, full}, mediarunner_cache:upload({reserve, HashB, 100}, Owner, Context))
+        after
+            meck:unload(mediarunner_capacity)
+        end,
         application:set_env(mediarunner, mediarunner_cache_max_bytes, 150),
         ok = cache_upload(A, binary:copy(<<"A">>, 100), Owner, Context),
         {ok, Id} = mediarunner_store:enqueue(Job, Owner, Context),

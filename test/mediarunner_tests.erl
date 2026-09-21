@@ -59,6 +59,17 @@ capacity_test() ->
     ?assertEqual(1, mediarunner_capacity:workers(8, 0, 4 * GiB)),
     ?assertEqual(32, mediarunner_capacity:workers(128, 1024 * GiB, 4 * GiB)).
 
+cache_capacity_test() ->
+    GiB = 1073741824,
+    %% A configured ceiling cannot exceed the disk or consume its reserve.
+    ?assertEqual(9 * GiB, mediarunner_capacity:cache_limit(100 * GiB, 10 * GiB, 10 * GiB, 0)),
+    ?assertEqual(2 * GiB, mediarunner_capacity:cache_limit(2 * GiB, 10 * GiB, 10 * GiB, 0)),
+    %% Existing complete files are already subtracted from available space.
+    ?assertEqual(5 * GiB, mediarunner_capacity:cache_limit(100 * GiB, 10 * GiB, 2 * GiB, 4 * GiB)),
+    ?assertEqual(0, mediarunner_capacity:cache_limit(100 * GiB, 10 * GiB, GiB div 2, 0)),
+    ?assertEqual(0, mediarunner_capacity:cache_limit(100 * GiB, GiB div 2, GiB div 2, 0)),
+    ?assertEqual(0, mediarunner_capacity:cache_limit(100 * GiB, 0, 0, 0)).
+
 callback_policy_test() ->
     Url = <<"https://client.example/media-runner/callback">>,
     ?assert(mediarunner_callback:is_allowed(Url, any)),
