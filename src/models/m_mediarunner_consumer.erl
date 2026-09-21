@@ -25,7 +25,15 @@ are returned only on creation or rotation, never through a model read path.".
 
 -behaviour(zotonic_model).
 
--export([install/1, create/2, m_get/3, list/1, get/2, update/4, delete/2]).
+-export([
+    install/1,
+    create/2,
+    m_get/3,
+    list/1,
+    get/2,
+    update/4,
+    delete/2
+]).
 
 -include_lib("zotonic_core/include/zotonic.hrl").
 
@@ -106,7 +114,8 @@ install_content_group(Context) ->
                 ])
             end, [false, true]),
             Id;
-        Id -> Id
+        Id ->
+            Id
     end.
 
 %% @doc Atomically create a consumer; reject anonymous, non-admin and read-only callers.
@@ -115,15 +124,18 @@ install_content_group(Context) ->
     Context :: z:context().
 create(Name, Context) ->
     case z_acl:is_admin(Context) andalso not z_acl:is_read_only(Context) of
-        true -> create_named(normalize_name(Name), Context);
-        false -> {error, eacces}
+        true ->
+            create_named(normalize_name(Name), Context);
+        false ->
+            {error, eacces}
     end.
 
 normalize_name(Name) when is_binary(Name), byte_size(Name) =< 512 ->
     case unicode:characters_to_list(z_string:trim(Name)) of
         Chars when is_list(Chars), length(Chars) > 0, length(Chars) =< 128 ->
             unicode:characters_to_binary(Chars);
-        _ -> undefined
+        _ ->
+            undefined
     end;
 normalize_name(_) -> undefined.
 
@@ -131,8 +143,10 @@ create_named(undefined, _Context) ->
     {error, invalid_name};
 create_named(Name, Context) ->
     case z_db:transaction(fun(Ctx) -> create_consumer(Name, Ctx) end, Context) of
-        {ok, _} = Result -> Result;
-        _ -> {error, provisioning_failed}
+        {ok, _} = Result ->
+            Result;
+        _ ->
+            {error, provisioning_failed}
     end.
 
 create_consumer(Name, Context) ->
@@ -152,7 +166,12 @@ create_consumer(Name, Context) ->
         <<"user_id">> => UserId
     }, Context),
     Token = new_token(AppId, UserId, GroupId, Context),
-    {ok, #{name => Name, user_id => UserId, app_id => AppId, token => Token}}.
+    {ok, #{
+        name => Name,
+        user_id => UserId,
+        app_id => AppId,
+        token => Token
+    }}.
 
 new_token(AppId, UserId, GroupId, Context) ->
     {ok, TokenId} = m_oauth2:insert_token(AppId, UserId, undefined, #{
@@ -167,10 +186,13 @@ new_token(AppId, UserId, GroupId, Context) ->
 -spec m_get(list(), zotonic_model:opt_msg(), z:context()) -> zotonic_model:return().
 m_get([<<"list">> | Rest], _Msg, Context) ->
     case list(Context) of
-        {ok, Rows} -> {ok, {Rows, Rest}};
-        Error -> Error
+        {ok, Rows} ->
+            {ok, {Rows, Rest}};
+        Error ->
+            Error
     end;
-m_get(_, _, _) -> {error, unknown_path}.
+m_get(_, _, _) ->
+    {error, unknown_path}.
 
 -spec list(z:context()) -> {ok, list(map())} | {error, term()}.
 list(Context) ->
@@ -182,52 +204,77 @@ list(Context) ->
                     Stats = mediarunner_statistics:snapshot(Context),
                     {ok, [Row#{<<"statistics">> => maps:get(maps:get(<<"user_id">>, Row), Stats, #{})}
                         || Row <- Rows]};
-                Error -> Error
+                Error ->
+                    Error
             end;
-        false -> {error, eacces}
+        false ->
+            {error, eacces}
     end.
 
 -spec get(integer(), z:context()) -> {ok, map()} | {error, term()}.
 get(Id, Context) ->
     case z_acl:is_admin(Context) of
-        true -> find_consumer(Id, false, Context);
-        false -> {error, eacces}
+        true ->
+            find_consumer(Id, false, Context);
+        false ->
+            {error, eacces}
     end.
 
 %% Membership and ownership identify consumers created before this management UI.
 %% Never expose app secrets or allow a forged id to modify another OAuth2 app.
 consumer_sql() ->
-    "select a.id, a.user_id, a.description, a.is_enabled from oauth2_app a "
-    "where a.user_id <> 1 and exists (select 1 from edge e "
-    "where e.subject_id = a.user_id and e.predicate_id = $1 and e.object_id = $2)".
+    "
+    select a.id, a.user_id, a.description, a.is_enabled
+    from oauth2_app a
+    where a.user_id <> 1
+      and exists (
+        select 1
+        from edge e
+        where e.subject_id = a.user_id
+          and e.predicate_id = $1
+          and e.object_id = $2
+    )".
 
 consumer_args(Context) ->
     [m_rsc:rid(hasusergroup, Context), m_rsc:rid(mediarunner_consumers, Context)].
 
 find_consumer(Id, Lock, Context) when is_integer(Id) ->
-    Suffix = case Lock of true -> " for update of a"; false -> "" end,
+    Suffix = case Lock of
+        true -> " for update of a";
+        false -> ""
+    end,
     case z_db:qmap(consumer_sql() ++ " and a.id = $3" ++ Suffix,
             consumer_args(Context) ++ [Id], Context) of
-        {ok, [Row]} -> {ok, Row};
-        {ok, []} -> {error, enoent};
-        Error -> Error
+        {ok, [Row]} ->
+            {ok, Row};
+        {ok, []} ->
+            {error, enoent};
+        Error ->
+            Error
     end;
-find_consumer(_, _, _) -> {error, enoent}.
+find_consumer(_, _, _) ->
+    {error, enoent}.
 
 %% @doc Rename a consumer and optionally revoke all its keys and issue a replacement.
 -spec update(integer(), term(), boolean(), z:context()) -> {ok, map()} | {error, term()}.
 update(Id, Name, Rotate, Context) when is_boolean(Rotate) ->
     mutate(Id, fun(Row, Ctx) ->
         case normalize_name(Name) of
-            undefined -> {error, invalid_name};
+            undefined ->
+                {error, invalid_name};
             Name1 ->
                 UserId = maps:get(<<"user_id">>, Row),
                 {ok, UserId} = m_rsc:update(UserId, #{<<"title">> => Name1}, Ctx),
                 {ok, App} = m_oauth2:get_app(Id, Ctx),
                 ok = m_oauth2:update_app(Id, App#{<<"description">> => Name1}, Ctx),
-                Consumer = #{app_id => Id, user_id => UserId, name => Name1},
+                Consumer = #{
+                    app_id => Id,
+                    user_id => UserId,
+                    name => Name1
+                },
                 case Rotate of
-                    false -> {ok, Consumer};
+                    false ->
+                        {ok, Consumer};
                     true ->
                         {ok, _} = m_oauth2:update_app_secret(Id, Ctx),
                         Token = new_token(Id, UserId, m_rsc:rid(mediarunner_consumers, Ctx), Ctx),
@@ -243,25 +290,41 @@ delete(Id, Context) ->
     mutate(Id, fun(Row, Ctx) ->
         UserId = maps:get(<<"user_id">>, Row),
         ok = m_oauth2:delete_app(Id, Ctx),
-        case z_db:q1("select exists(select 1 from oauth2_app where user_id=$1) "
-                "or exists(select 1 from oauth2_token where user_id=$1)", [UserId], Ctx) of
-            false -> ok = m_rsc:delete(UserId, Ctx);
-            true -> ok
+        case z_db:q1("
+            select exists(
+                select 1
+                from oauth2_app
+                where user_id=$1
+            )
+              or exists(
+                select 1
+                from oauth2_token
+                where user_id=$1
+            )", [UserId], Ctx) of
+            false ->
+                ok = m_rsc:delete(UserId, Ctx);
+            true ->
+                ok
         end,
         ok
     end, Context).
 
 mutate(Id, Fun, Context) ->
     case z_acl:is_admin(Context) andalso not z_acl:is_read_only(Context) of
-        false -> {error, eacces};
+        false ->
+            {error, eacces};
         true ->
             case z_db:transaction(fun(Ctx) ->
                 case find_consumer(Id, true, Ctx) of
-                    {ok, Row} -> Fun(Row, Ctx);
-                    Error -> Error
+                    {ok, Row} ->
+                        Fun(Row, Ctx);
+                    Error ->
+                        Error
                 end
             end, Context) of
-                {rollback, _} -> {error, provisioning_failed};
-                Result -> Result
+                {rollback, _} ->
+                    {error, provisioning_failed};
+                Result ->
+                    Result
             end
     end.

@@ -24,7 +24,13 @@ Conservative processing capacity from online schedulers and available memory, ca
 container quotas when exposed. Keep one CPU and 25% of available memory for Zotonic and
 the OS. Unknown memory means one worker.
 ").
--export([snapshot/1, workers/3, queue/1, queue/2, configure/2]).
+-export([
+    snapshot/1,
+    workers/3,
+    queue/1,
+    queue/2,
+    configure/2
+]).
 
 -spec snapshot(z:context()) -> map().
 snapshot(Context) ->
@@ -32,20 +38,30 @@ snapshot(Context) ->
     Available = available_memory(),
     Budget =
         case m_site:get(mediarunner_memory_per_worker, Context) of
-            N when is_integer(N), N > 0 -> N;
-            _ -> 4294967296
+            N when is_integer(N), N > 0 ->
+                N;
+            _ ->
+                4294967296
         end,
     Limit =
         case m_site:get(mediarunner_workers, Context) of
-            W when is_integer(W), W > 0, W =< 32 -> W;
-            _ -> workers(Cores, Available, Budget)
+            W when is_integer(W), W > 0, W =< 32 ->
+                W;
+            _ ->
+                workers(Cores, Available, Budget)
         end,
     Ffmpeg = case m_site:get(mediarunner_ffmpeg_workers, Context) of
         2 -> 2;
-        _ -> 1
+        _ ->
+            1
     end,
-    #{workers => Limit, ffmpeg_workers => Ffmpeg, cores => Cores,
-        available_memory => Available, memory_per_worker => Budget}.
+    #{
+        workers => Limit,
+        ffmpeg_workers => Ffmpeg,
+        cores => Cores,
+        available_memory => Available,
+        memory_per_worker => Budget
+    }.
 
 -spec workers(pos_integer(), non_neg_integer(), pos_integer()) -> pos_integer().
 workers(Cores, Available, PerWorker) when
@@ -56,12 +72,15 @@ workers(Cores, Available, PerWorker) when
     max(1, min(32, min(max(1, Cores - 1), Available * 3 div 4 div PerWorker))).
 
 -spec queue(z:context()) -> term().
-queue(Context) -> queue(run, Context).
+queue(Context) ->
+    queue(run, Context).
 
 %% @doc Keep long ffmpeg commands independent of the general processing counter.
 -spec queue(run | ffmpeg, z:context()) -> term().
-queue(run, Context) -> {mediarunner_processing, z_context:site(Context)};
-queue(ffmpeg, Context) -> {mediarunner_ffmpeg, z_context:site(Context)}.
+queue(run, Context) ->
+    {mediarunner_processing, z_context:site(Context)};
+queue(ffmpeg, Context) ->
+    {mediarunner_ffmpeg, z_context:site(Context)}.
 
 -spec configure(map(), z:context()) -> ok.
 configure(#{workers := Limit, ffmpeg_workers := Ffmpeg} = Capacity, Context) ->
@@ -90,7 +109,8 @@ available_memory() ->
         try
             memsup:get_system_memory_data()
         catch
-            _:_ -> []
+            _:_ ->
+                []
         end,
     Reclaimable = lists:sum([
         proplists:get_value(K, Data, 0)
@@ -98,9 +118,12 @@ available_memory() ->
     ]),
     Host = proplists:get_value(available_memory, Data, Reclaimable),
     case memory_quota() of
-        undefined -> Host;
-        Bytes when Host =:= 0 -> Bytes;
-        Bytes -> min(Host, Bytes)
+        undefined ->
+            Host;
+        Bytes when Host =:= 0 ->
+            Bytes;
+        Bytes ->
+            min(Host, Bytes)
     end.
 
 %% Container memory limits are detected through Linux cgroups (v2, then v1).
@@ -131,7 +154,8 @@ integer_file(Path) ->
         {ok, Data} = file:read_file(Path),
         binary_to_integer(string:trim(Data))
     catch
-        _:_ -> undefined
+        _:_ ->
+            undefined
     end.
 
 cpu_quota() ->
@@ -147,7 +171,9 @@ cpu_quota() ->
                     integer_file("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
                 }
             of
-                {Q, P} when is_integer(Q), Q > 0, is_integer(P), P > 0 -> max(1, Q div P);
-                _ -> erlang:system_info(schedulers_online)
+                {Q, P} when is_integer(Q), Q > 0, is_integer(P), P > 0 ->
+                    max(1, Q div P);
+                _ ->
+                    erlang:system_info(schedulers_online)
             end
     end.

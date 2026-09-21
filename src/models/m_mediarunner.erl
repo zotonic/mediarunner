@@ -34,8 +34,10 @@ m_get([<<"status">> | Rest], Msg, Context) ->
         true ->
             Filter =
                 case Msg of
-                    #{payload := #{<<"filter">> := F}} when is_binary(F), byte_size(F) =< 16 -> F;
-                    _ -> <<>>
+                    #{payload := #{<<"filter">> := F}} when is_binary(F), byte_size(F) =< 16 ->
+                        F;
+                    _ ->
+                        <<>>
                 end,
             Snapshot = mediarunner_store:snapshot(Filter, Context),
             {ok, {Snapshot#{charts => mediarunner_charts:render(Snapshot, Context),
@@ -45,8 +47,10 @@ m_get([<<"status">> | Rest], Msg, Context) ->
     end;
 m_get([<<"sandbox">> | Rest], _Msg, Context) ->
     case z_auth:is_auth(Context) andalso z_acl:is_allowed(use, mediarunner, Context) of
-        true -> {ok, {mediarunner_sandbox:status(Context), Rest}};
-        false -> {error, eacces}
+        true ->
+            {ok, {mediarunner_sandbox:status(Context), Rest}};
+        false ->
+            {error, eacces}
     end;
 m_get(_, _, _) ->
     {error, unknown_path}.

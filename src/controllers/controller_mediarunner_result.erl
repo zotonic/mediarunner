@@ -19,14 +19,25 @@
 
 -module(controller_mediarunner_result).
 
--export([allowed_methods/1, content_types_provided/1, content_types_accepted/1,
-    is_authorized/1, process/4]).
+-export([
+    allowed_methods/1,
+    content_types_provided/1,
+    content_types_accepted/1,
+    is_authorized/1,
+    process/4
+]).
 
-allowed_methods(Context) -> {[<<"GET">>], Context}.
+allowed_methods(Context) ->
+    {[<<"GET">>], Context}.
 
-content_types_provided(Context) -> {[{<<"application">>, <<"octet-stream">>, []}], Context}.
-content_types_accepted(Context) -> {[{<<"application">>, <<"json">>, []}], Context}.
-is_authorized(Context) -> controller_mediarunner_file:is_authorized(Context).
+content_types_provided(Context) ->
+    {[{<<"application">>, <<"octet-stream">>, []}], Context}.
+
+content_types_accepted(Context) ->
+    {[{<<"application">>, <<"json">>, []}], Context}.
+
+is_authorized(Context) ->
+    controller_mediarunner_file:is_authorized(Context).
 
 %% @doc Serve owner-scoped result files with bounded memory.
 process(_, _, _, Context) ->
@@ -42,7 +53,9 @@ download(Context) ->
                     {ok, Size} = file:position(Fd, eof),
                     {ok, 0} = file:position(Fd, bof),
                     {{device, Size, Fd}, Context};
-                {error, _} -> {{halt, 404}, Context}
+                {error, _} ->
+                    {{halt, 404}, Context}
             end;
-        {error, missing} -> {{halt, 404}, Context}
+        {error, missing} ->
+            {{halt, 404}, Context}
     end.

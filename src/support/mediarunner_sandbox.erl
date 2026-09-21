@@ -28,16 +28,26 @@ refresh(Context) ->
     State = case Result of
         {ok, _} -> available;
         {error, {sandbox_unsupported, _}} -> unsupported;
-        {error, _} -> error
+        {error, _} ->
+            error
     end,
     case {State, m_site:get(mediarunner_sandbox_status, Context)} of
         {unsupported, Previous} when Previous =/= unsupported ->
-            ?LOG_NOTICE(#{text => <<"OS sandbox unsupported; media jobs will run without isolation">>,
-                in => mediarunner, os => os:type(), reason => sandbox_unsupported});
+            ?LOG_NOTICE(#{
+                text => <<"OS sandbox unsupported; media jobs will run without isolation">>,
+                in => mediarunner,
+                os => os:type(),
+                reason => sandbox_unsupported
+            });
         {error, Previous} when Previous =/= error ->
-            ?LOG_ERROR(#{text => <<"Media runner sandbox setup failed">>,
-                in => mediarunner, result => error, reason => Result});
-        _ -> ok
+            ?LOG_ERROR(#{
+                text => <<"Media runner sandbox setup failed">>,
+                in => mediarunner,
+                result => error,
+                reason => Result
+            });
+        _ ->
+            ok
     end,
     application:set_env(z_context:site(Context), mediarunner_sandbox_status, State).
 
@@ -46,9 +56,13 @@ refresh(Context) ->
 status(Context) ->
     State = m_site:get(mediarunner_sandbox_status, Context),
     Message = case State of
-        available -> ?__("OS sandbox available. Media jobs run with sandbox isolation.", Context);
-        unsupported -> ?__("OS sandbox unsupported. Media jobs run without sandbox isolation.", Context);
-        error -> ?__("Sandbox setup failed. Media processing is blocked; check the server logs.", Context);
-        _ -> ?__("OS sandbox status has not been checked yet.", Context)
+        available ->
+            ?__("OS sandbox available. Media jobs run with sandbox isolation.", Context);
+        unsupported ->
+            ?__("OS sandbox unsupported. Media jobs run without sandbox isolation.", Context);
+        error ->
+            ?__("Sandbox setup failed. Media processing is blocked; check the server logs.", Context);
+        _ ->
+            ?__("OS sandbox status has not been checked yet.", Context)
     end,
     #{state => State, message => Message}.

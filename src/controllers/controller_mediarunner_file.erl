@@ -26,24 +26,38 @@ login and mediarunner permission. Source contents never pass through JSON or Pos
 Incomplete uploads remain invisible and are removed on failure, expiry or site restart.
 ").
 
--export([allowed_methods/1, content_types_accepted/1, content_types_provided/1,
-    is_authorized/1, process/4]).
+-export([
+    allowed_methods/1,
+    content_types_accepted/1,
+    content_types_provided/1,
+    is_authorized/1,
+    process/4
+]).
 -include_lib("zotonic_core/include/zotonic.hrl").
+allowed_methods(Context) ->
+    {[<<"PUT">>], Context}.
 
-allowed_methods(Context) -> {[<<"PUT">>], Context}.
 content_types_accepted(Context) ->
     {[{<<"application">>, <<"octet-stream">>, []}], Context}.
-content_types_provided(Context) -> {[{<<"application">>, <<"json">>, []}], Context}.
-is_authorized(Context) -> case m_mediarunner_job:authorize(Context) of
-        ok -> {true, Context};
-        {error, _} -> {{halt, 403}, Context}
+
+content_types_provided(Context) ->
+    {[{<<"application">>, <<"json">>, []}], Context}.
+
+is_authorized(Context) ->
+    case m_mediarunner_job:authorize(Context) of
+        ok ->
+            {true, Context};
+        {error, _} ->
+            {{halt, 403}, Context}
     end.
 
 process(Method, _, _, Context) ->
     Hash = z_context:get_q(<<"hash">>, Context),
     case valid_hash(Hash) of
-        true -> process_file(Method, Hash, z_context:set_nocache_headers(Context));
-        false -> {{halt, 400}, Context}
+        true ->
+            process_file(Method, Hash, z_context:set_nocache_headers(Context));
+        false ->
+            {{halt, 400}, Context}
     end.
 
 valid_hash(Hash) when is_binary(Hash), byte_size(Hash) =:= 64 ->
@@ -53,8 +67,10 @@ valid_hash(_) -> false.
 process_file(<<"PUT">>, Hash, Context) ->
     Token = cowmachine_req:get_req_header(<<"x-upload-token">>, Context),
     case valid_hash(Token) of
-        true -> receive_file(Hash, Token, Context);
-        false -> {{halt, 400}, Context}
+        true ->
+            receive_file(Hash, Token, Context);
+        false ->
+            {{halt, 400}, Context}
     end.
 
 receive_file(Hash, Token, Context) ->
@@ -72,19 +88,23 @@ receive_file(Hash, Token, Context) ->
                     Hash = Digest,
                     ok = file:sync(Fd),
                     case mediarunner_queue:upload({complete, Hash, Token}, Owner, Context1) of
-                        ok -> {{halt, 204}, Context1};
-                        {error, Reason} -> {{halt, status(Reason)}, Context1}
+                        ok ->
+                            {{halt, 204}, Context1};
+                        {error, Reason} ->
+                            {{halt, status(Reason)}, Context1}
                     end
                 after
                     file:close(Fd)
                 end
             catch
-                _:_ -> {{halt, 400}, Context}
+                _:_ ->
+                    {{halt, 400}, Context}
             after
                 %% Does nothing after successful publication; otherwise removes the partial file.
                 mediarunner_queue:upload({abort, Hash, Token}, Owner, Context)
             end;
-        {error, Reason} -> {{halt, status(Reason)}, Context}
+        {error, Reason} ->
+            {{halt, status(Reason)}, Context}
     end.
 
 stream(Fd, Left, Expires, State, Context) ->
@@ -95,7 +115,8 @@ stream(Fd, Left, Expires, State, Context) ->
     ok = file:write(Fd, Chunk),
     Hash = crypto:hash_update(State, Chunk),
     case Next of
-        more -> stream(Fd, Remaining, Expires, Hash, Context1);
+        more ->
+            stream(Fd, Remaining, Expires, Hash, Context1);
         ok ->
             0 = Remaining,
             {binary:encode_hex(crypto:hash_final(Hash), lowercase), Context1}
