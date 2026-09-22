@@ -115,5 +115,5 @@ authorization_context_test() ->
         ?assertEqual({error, eacces}, m_mediarunner_job:m_get([<<"capabilities">>], undefined, Context)),
         lists:foreach(fun(Operation) ->
             ?assertEqual({error, eacces}, m_mediarunner_job:m_post([Operation], #{payload => #{}}, Context))
-        end, [<<"submit">>, <<"reserve">>, <<"received">>])
+        end, [<<"submit">>, <<"reserve">>, <<"received">>, <<"status">>])
     end, [Anonymous, ReadOnly]).

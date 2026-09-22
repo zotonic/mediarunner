@@ -97,6 +97,18 @@ control([<<"reserve">>], #{<<"hash">> := Hash, <<"size">> := Size}, Context)
         false ->
             {error, payload}
     end;
+%% Only the submitting consumer can recover status or a lost result callback.
+control([<<"status">>], #{<<"id">> := Id}, Context) when is_binary(Id), byte_size(Id) =< 64 ->
+    case z_db:q("
+        select status,result
+        from mediarunner_job
+        where id=$1 and owner_id=$2 and expires>$3",
+        [Id, z_acl:user(Context), erlang:system_time(second)], Context) of
+        [{Status, Result}] when is_binary(Result) ->
+            {ok, #{outcome => Status, result => z_json:decode(Result)}};
+        [{Status, _}] -> outcome(Status);
+        [] -> {error, enoent}
+    end;
 control([<<"received">>], #{<<"id">> := Id}, Context) when is_binary(Id), byte_size(Id) =< 64 ->
     case z_db:q1("
         select count(*)
