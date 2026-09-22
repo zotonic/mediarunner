@@ -95,6 +95,7 @@ run() ->
         lists:foreach(fun(Mode) -> concurrent_upload(Mode, Context) end, [success, corrupt, killed]),
         expired_upload_claim(Context),
         image_roundtrip(Context),
+        output_as_input(Context),
         result_during_upload(Context),
         mediarunner_http_tests:run(),
         large_result(Context),
@@ -265,6 +266,37 @@ image_roundtrip(Context) ->
     after
         file:delete(Input),
         file:delete(Output)
+    end.
+
+%% A fresh output must satisfy a later input lookup without any file upload.
+output_as_input(Context) ->
+    Output = z_convert:to_list(z_tempfile:new()) ++ ".output",
+    Input = Output ++ ".input",
+    Value = z_ids:id(32),
+    try
+        Command = ["printf '%s\\n' ", binary_to_list(Value), " > ", z_filelib:os_filename(Output)],
+        ?assertEqual({ok, <<>>}, z_exec:run(file, Command, #{write => [Output]}, Context)),
+        {ok, Size, Hash} = z_media_runner_protocol:hash_file(Output),
+        File = #{<<"sha256">> => Hash, <<"size">> => Size},
+        {ok, {file, CachedPath}} = mediarunner_cache:read(File, 1, Context),
+        ?assertEqual({error, missing}, mediarunner_cache:read(File, -1, Context)),
+        %% Cache identity depends on content, not the local output filename.
+        ok = file:rename(Output, Input),
+        ok = meck:new(z_media_runner_protocol, [passthrough]),
+        try
+            ?assertEqual({ok, Value}, z_exec:run(file, read_line(Input), #{read => [Input]}, Context)),
+            ?assertEqual(0, meck:num_calls(z_media_runner_protocol, upload, '_')),
+            ?assertEqual({ok, {file, CachedPath}}, mediarunner_cache:read(File, 1, Context)),
+            ?assertEqual(1, z_db:q1("
+                select count(*) from mediarunner_cache
+                where owner_id = 1 and kind = 'file' and hash = $1", [Hash], Context))
+        after
+            meck:unload(z_media_runner_protocol)
+        end,
+        io:format("Command output reused as follow-up input without uploading.~n")
+    after
+        file:delete(Output),
+        file:delete(Input)
     end.
 
 restart_recovery(Url, Token, Callback, Context) ->
