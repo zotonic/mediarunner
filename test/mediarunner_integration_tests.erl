@@ -89,6 +89,7 @@ run() ->
         ),
         mediarunner_queue_tests:run(Context),
         ?assertEqual({ok, <<"roundtrip">>}, z_exec:run(file, <<"printf roundtrip">>, #{}, Context)),
+        status_lookup(Context),
         mediarunner_consumer_tests:run(z_media_runner_protocol:control_url(Url, <<"submit">>), Context),
         mediarunner_statistics_tests:run(Context),
         upload_checks(Url, Token, ReadOnly, Context),
@@ -136,6 +137,29 @@ development_tls(Url, Token) ->
     after
         restore(zotonic, environment, OldEnvironment),
         tls_certificate_check:override_trusted_authorities(OldCa)
+    end.
+
+%% Status recovery is owner-scoped, including completed results and expiry.
+status_lookup(Context) ->
+    Id = z_ids:id(32),
+    Result = #{<<"status">> => <<"ok">>, <<"stdout">> => <<>>, <<"files">> => []},
+    Message = #{payload => #{<<"id">> => Id}},
+    Now = erlang:system_time(second),
+    %% Keep delivery inactive so the worker cannot clear this fixture's result.
+    1 = z_db:q("
+        insert into mediarunner_job
+            (id,owner_id,profile,request_hash,created,expires,status,delivery,result)
+        values ($1,$2,'file',$3,$4,$5,'completed','delivered',$6)",
+        [Id, z_acl:user(Context), <<>>, Now, Now + 60, z_json:encode(Result)], Context),
+    try
+        ?assertEqual({ok, #{outcome => <<"completed">>, result => Result}},
+            m_mediarunner_job:m_post([<<"status">>], Message, Context)),
+        1 = z_db:q("update mediarunner_job set owner_id=-1 where id=$1", [Id], Context),
+        ?assertEqual({error, enoent}, m_mediarunner_job:m_post([<<"status">>], Message, Context)),
+        1 = z_db:q("update mediarunner_job set owner_id=$2,expires=0 where id=$1", [Id, z_acl:user(Context)], Context),
+        ?assertEqual({error, enoent}, m_mediarunner_job:m_post([<<"status">>], Message, Context))
+    after
+        z_db:q("delete from mediarunner_job where id=$1", [Id], Context)
     end.
 
 sandbox_dashboard(Context) ->
@@ -282,6 +306,11 @@ output_as_input(Context) ->
         ?assertEqual({error, missing}, mediarunner_cache:read(File, -1, Context)),
         %% Cache identity depends on content, not the local output filename.
         ok = file:rename(Output, Input),
+        {ok, [Runner]} = z_media_runner_pool:runners(),
+        ColdRunner = #{url => <<"https://cold.example/media-runner">>, token => <<"cold">>},
+        {ok, Followup} = z_media_runner_protocol:pack(file, read_line(Input), #{read => [Input]}),
+        ?assertEqual([Runner, ColdRunner],
+            gen_server:call(z_media_runner, {rank, [ColdRunner, Runner], Followup})),
         ok = meck:new(z_media_runner_protocol, [passthrough]),
         try
             ?assertEqual({ok, Value}, z_exec:run(file, read_line(Input), #{read => [Input]}, Context)),

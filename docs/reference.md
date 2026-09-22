@@ -3,6 +3,8 @@
 Detailed deployment, configuration, protocol and testing notes. Start with the
 [README](../README.md) for setup and an overview.
 
+For multiple processing hosts, see [client-side runner pools](pool.md).
+
 ## Deployment
 
 Install the sandbox helpers and media tools on the runner host, including the
@@ -125,7 +127,7 @@ Omitting `media_runner_hostname` retains local execution. Optional settings:
 
 | System setting | Default | Meaning |
 | --- | --- | --- |
-| `media_runner_wait_timeout` | `3900` | Job expiry and callback wait in seconds (65 minutes); allow for uploads, queuing and processing, and keep below 24 hours. |
+| `media_runner_wait_timeout` | `43500` | Job expiry and callback wait in seconds (12 hours plus 5 minutes); allow for uploads, queuing and processing, and keep below 24 hours. |
 | `media_runner_max_input_bytes` | `17179869184` | Maximum source file size (16 GiB); configure on both hosts. Sources are streamed. |
 | `media_runner_max_output_bytes` | `17179869184` | Maximum combined output size per job (16 GiB); configure on both hosts. Outputs are streamed. |
 | `media_runner_max_callback_bytes` | `135266304` | Maximum encoded callback JSON body (129 MiB), reserved per starting/running job. Configure on both hosts; file transfers have separate limits. |
@@ -169,6 +171,22 @@ sidecar files and custom local environment variables are not transferred.
 Jobs are stored in PostgreSQL before acceptance. A supervised coordinator runs
 separate general and ffmpeg render worker pools, each with its own `jobs` counter and
 CPU/memory overload modifiers. Rendering defaults to one worker; set
+Default execution limits are shared by local sandboxes and the runner:
+
+| Profile | Default duration | Maximum remote duration | Console limit per stream | Output file limit |
+| --- | --- | --- | --- | --- |
+| `ffmpeg` render | 4 hours | 12 hours | 16 MiB | 16 GiB |
+| `ffmpeg_preview` | 2 minutes | 10 minutes | 1 MiB | 1 GiB |
+| `imagemagick`, `imagemagick_pdf` | 2 minutes | 10 minutes | 1 MiB | 1 GiB |
+| `ffprobe` | 1 minute | 10 minutes | 1 MiB | 1 MiB |
+| `file` | 10 seconds | 1 minute | 64 KiB | 1 MiB |
+
+The runner also caps the combined output size to the profile's file limit and
+`media_runner_max_output_bytes`, whichever is smaller. Input transfers retain the
+shared input limit: a preview or probe may need to read a large source video.
+Command timeout options remain milliseconds; the client wait setting is seconds.
+Explicit client wait settings must allow enough time for the intended renders.
+
 `mediarunner_ffmpeg_workers` to `2` for two concurrent renders. ImageMagick, ffprobe,
 file and `ffmpeg_preview` jobs use the general pool and skip queued renders.
 Video thumbnails and audio artwork extraction use `ffmpeg_preview` automatically.
