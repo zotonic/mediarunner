@@ -292,6 +292,12 @@ and only then replaces the requested local outputs. A failed download leaves the
 existing outputs intact. Each result file has a content hash; the operation cache
 key described below is separate.
 
+Input and output files share one content-hash cache per consumer. When a command's
+output becomes a follow-up command's input, its SHA-256 hash finds the existing
+file and no upload is needed, even if the local filename changes. This requires
+the same consumer credentials and unchanged file contents. Evicted files are
+uploaded again when needed. The client still downloads each command's outputs.
+
 `model/mediarunner_job/post/received` with `{"id": job_id}` acknowledges successful collection
 and releases the output pins. Receiving the callback alone does not release them.
 Abandoned downloads remain protected for `mediarunner_result_retention`; after that

@@ -22,6 +22,8 @@
 -export([publish/5, links/2]).
 
 %% @doc Move a completed sandbox output into the owner-scoped disk cache before staging cleanup.
+%% Outputs use the same content-hash entries as uploaded inputs, so a follow-up
+%% job can reuse these bytes without uploading the downloaded result again.
 -spec publish(file:filename_all(), map(), binary(), integer(), z:context()) -> map().
 publish(Path, #{<<"sha256">> := Hash, <<"size">> := Size} = File, Id, Owner, Context) ->
     Deadline = erlang:monotonic_time(second) + 3600,
