@@ -145,12 +145,12 @@ status_lookup(Context) ->
     Result = #{<<"status">> => <<"ok">>, <<"stdout">> => <<>>, <<"files">> => []},
     Message = #{payload => #{<<"id">> => Id}},
     Now = erlang:system_time(second),
-    %% Keep delivery inactive so the worker cannot clear this fixture's result.
+    %% Keep the result recoverable, with its callback retry deferred beyond this test.
     1 = z_db:q("
         insert into mediarunner_job
-            (id,owner_id,profile,request_hash,created,expires,status,delivery,result)
-        values ($1,$2,'file',$3,$4,$5,'completed','delivered',$6)",
-        [Id, z_acl:user(Context), <<>>, Now, Now + 60, z_json:encode(Result)], Context),
+            (id,owner_id,profile,request_hash,created,expires,status,delivery,result,next_attempt)
+        values ($1,$2,'file',$3,$4,$5,'completed','pending',$6,$7)",
+        [Id, z_acl:user(Context), <<>>, Now, Now + 60, z_json:encode(Result), Now + 3600], Context),
     try
         ?assertEqual({ok, #{outcome => <<"completed">>, result => Result}},
             m_mediarunner_job:m_post([<<"status">>], Message, Context)),
