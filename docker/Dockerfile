@@ -26,7 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 zotonic \
     && useradd --uid 10001 --gid zotonic --create-home --shell /bin/sh zotonic
-# Allow PDF previews while retaining the rest of the distribution's policy.
+# ImageMagick uses the last matching policy: allow PDF reading after any denies.
+# Other restrictions remain intact; test/docker-smoke.sh verifies reading and denied writing.
 RUN sed -i '/<\/policymap>/i\  <policy domain="coder" rights="read" pattern="PDF" />' \
         /etc/ImageMagick-7/policy.xml
 

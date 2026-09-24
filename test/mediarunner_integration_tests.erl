@@ -210,12 +210,16 @@ large_result(Context) ->
     HttpOptions = z_media_runner_protocol:http_options(30000),
     Jobs = ets:new(result_download_jobs, [public, set]),
     ok = meck:new(z_media_runner_protocol, [passthrough]),
+    %% Observe both default-timeout requests and deadline-bounded client requests.
     ok = meck:expect(z_media_runner_protocol, request, fun(U, T, Payload) ->
+        z_media_runner_protocol:request(U, T, Payload, 30000)
+    end),
+    ok = meck:expect(z_media_runner_protocol, request, fun(U, T, Payload, Timeout) ->
         case Payload of
             #{<<"id">> := JobId, <<"profile">> := <<"ffmpeg">>} -> ets:insert(Jobs, {current, JobId});
             _ -> ok
         end,
-        Reply = meck:passthrough([U, T, Payload]),
+        Reply = meck:passthrough([U, T, Payload, Timeout]),
         case binary:match(U, <<"/post/received">>) of
             nomatch -> ok;
             _ -> ?assertEqual({ok, #{<<"outcome">> => <<"received">>}}, Reply)
@@ -641,8 +645,8 @@ concurrent_upload(Mode, Context) ->
     Modules = [z_media_runner_protocol, mediarunner_queue],
     lists:foreach(fun(M) -> ok = meck:new(M, [passthrough, no_link]) end, Modules),
     try
-        ok = meck:expect(z_media_runner_protocol, request, fun(U, T, Payload) ->
-            Reply = meck:passthrough([U, T, Payload]),
+        ok = meck:expect(z_media_runner_protocol, request, fun(U, T, Payload, Timeout) ->
+            Reply = meck:passthrough([U, T, Payload, Timeout]),
             case Reply of
                 {ok, #{<<"outcome">> := <<"busy">>}} -> Parent ! {race_waiting, self()};
                 _ -> ok

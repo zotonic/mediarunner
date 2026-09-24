@@ -85,3 +85,17 @@ To inspect the image without starting the site:
 docker run --rm mediarunner:ubuntu26.04 magick -version
 docker run --rm mediarunner:ubuntu26.04 ffmpeg -version
 ```
+
+## Container checks
+
+CI builds this Dockerfile and runs `test/docker-smoke.sh` on Ubuntu for each pull
+request and main-branch push. To run the same checks locally after building:
+
+```sh
+test/docker-smoke.sh
+```
+
+The checks use disposable containers and a private Docker network, verify OTP 28+,
+non-root execution, sandboxed PDF previews, denied PDF writing, and the real
+entrypoint with PostgreSQL and the logon page. Docker and curl are required on the
+host. Temporary databases, volumes and containers are removed on exit.
