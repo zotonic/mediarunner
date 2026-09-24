@@ -216,7 +216,7 @@ These settings belong to the runner **site** configuration:
 | `mediarunner_memory_per_worker` | `4294967296` | Memory budget per processing worker (4 GiB). |
 | `mediarunner_queue_limit` | `1000` | Maximum outstanding jobs, including callback delivery. |
 | `mediarunner_storage_limit` | `1073741824` | Queue metadata and result budget, including reserved space for starting/running results. |
-| `mediarunner_uploads` | `4` | Maximum concurrent upload reservations. |
+| `mediarunner_uploads` | `20` | Maximum concurrent upload reservations. |
 | `mediarunner_cache_max_bytes` | `107374182400` | Maximum combined source/result cache budget (100 GiB), including reserved uploads. Automatically capped to the cache filesystem’s capacity and free space, keeping at least 10% or 1 GiB free (whichever is larger). |
 | `mediarunner_cache_max_age` | `604800` | Expire unpinned files and cached manifests after this many idle seconds (seven days; minimum one hour). |
 | `mediarunner_result_retention` | `86400` | Seconds to protect uncollected outputs after processing (24 hours, checked hourly). |
