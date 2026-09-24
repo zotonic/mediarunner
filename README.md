@@ -69,7 +69,7 @@ Runner settings belong in the **site configuration**. Common defaults:
 | `mediarunner_ffmpeg_workers` | `1`; set to `2` for two concurrent ffmpeg renders |
 | `mediarunner_memory_per_worker` | 4 GiB |
 | `mediarunner_queue_limit` | 1,000 outstanding jobs |
-| `mediarunner_uploads` | 4 upload reservations |
+| `mediarunner_uploads` | 20 upload reservations |
 | `mediarunner_cache_max_bytes` | 100 GiB |
 | `mediarunner_cache_max_age` | 7 days idle |
 | `mediarunner_result_retention` | 24 hours for uncollected outputs |

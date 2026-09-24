@@ -172,7 +172,7 @@ upload_room(Size, Owner, Context) ->
         N when is_integer(N), N > 0 ->
             N;
         _ ->
-            4
+            20
     end,
     case Count < Limit of
         true ->
