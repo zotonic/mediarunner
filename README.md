@@ -13,6 +13,8 @@ cache so large files only need to be uploaded once while cached.
 
 ## Setup
 
+For a container deployment, see [Docker build and deployment](docs/docker.md).
+
 1. Install this site under `apps_user/mediarunner` in the runner's Zotonic checkout.
 2. Install the sandbox helper and required media tools, fonts and ImageMagick policy.
    Use a dedicated host with persistent storage and OS/container resource limits.

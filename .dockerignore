@@ -1,0 +1,19 @@
+# Only public build inputs: never send local credentials, caches or site data.
+**
+!src/
+!src/**
+!priv/
+!priv/zotonic_site.config
+!priv/dispatch/
+!priv/dispatch/**
+!priv/lib/
+!priv/lib/**
+!priv/templates/
+!priv/templates/**
+!priv/translations/
+!priv/translations/**
+!rebar.config
+!LICENSE
+!docker/
+!docker/Dockerfile
+!docker/entrypoint.sh

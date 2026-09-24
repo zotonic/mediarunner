@@ -85,3 +85,22 @@ jobs:
           test "$(id -u)" -ne 0
           env SHELL=/bin/sh ZOTONIC_DBHOST=localhost ZOTONIC_SANDBOX_TESTS=1 \
             bash apps_user/mediarunner/test/ci.sh
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ZOTONIC_REF: ${{ inputs.zotonic_ref || vars.ZOTONIC_REF || 'master' }}
+      MEDIARUNNER_IMAGE: mediarunner:ci
+    steps:
+      - name: Check out mediarunner
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Build Ubuntu 26.04 image with OTP 28
+        run: scripts/build-docker.sh
+
+      - name: Check media tools, PDF policy, sandbox and site startup
+        timeout-minutes: 10
+        run: test/docker-smoke.sh
