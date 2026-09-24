@@ -1,8 +1,26 @@
+# Build OTP on the same Ubuntu release as the runtime, avoiding distro OTP 27.
+FROM ubuntu:26.04 AS otp-build
+ARG OTP_VERSION=28.5.0.7
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl build-essential autoconf libssl-dev libncurses-dev zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /tmp/otp
+RUN curl --fail --location --retry 3 \
+        "https://github.com/erlang/otp/releases/download/OTP-${OTP_VERSION}/otp_src_${OTP_VERSION}.tar.gz" \
+        --output /tmp/otp.tar.gz \
+    && tar -xzf /tmp/otp.tar.gz --strip-components=1 \
+    && ./configure --prefix=/opt/erlang --without-javac --without-wx --without-odbc \
+    && make -j"$(nproc)" \
+    && make install \
+    && /opt/erlang/bin/erl -noshell -eval \
+        'true = list_to_integer(erlang:system_info(otp_release)) >= 28, halt().'
+
 # Ubuntu's official image is minimal; there is no separate official slim tag.
 FROM ubuntu:26.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 SHELL=/bin/sh
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates erlang-nox libseccomp2 libstdc++6 \
+        ca-certificates libseccomp2 libstdc++6 libssl3t64 libncurses6 libtinfo6 zlib1g \
         imagemagick ghostscript ffmpeg file fonts-dejavu-core fonts-liberation \
         inotify-tools openssl dumb-init \
     && rm -rf /var/lib/apt/lists/* \
@@ -12,9 +30,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN sed -i '/<\/policymap>/i\  <policy domain="coder" rights="read" pattern="PDF" />' \
         /etc/ImageMagick-7/policy.xml
 
+COPY --from=otp-build /opt/erlang /opt/erlang
+ENV PATH="/opt/erlang/bin:${PATH}"
+
 FROM runtime AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential git curl erlang-dev libseccomp-dev libssl-dev \
+        build-essential git curl libseccomp-dev libssl-dev \
         autoconf automake libtool pkg-config \
     && rm -rf /var/lib/apt/lists/*
 ARG ZOTONIC_REF=master

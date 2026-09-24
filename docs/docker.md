@@ -1,7 +1,9 @@
 # Docker
 
 Build a self-contained mediarunner image on the official minimal `ubuntu:26.04`
-base. The runtime includes Erlang, ImageMagick 7, Ghostscript, ffmpeg, fonts,
+base. Erlang/OTP 28.5.0.7 is built from source on Ubuntu in a separate stage;
+Ubuntu’s OTP 27 packages are not used. The build rejects OTP versions below 28.
+The runtime includes ImageMagick 7, Ghostscript, ffmpeg, fonts,
 `file`, and the native sandbox helper. ClamAV and wkhtmltopdf are not installed.
 PostgreSQL runs separately.
 
