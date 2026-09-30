@@ -68,3 +68,57 @@ body.mediarunner { background: #f4f6f8; color: #20333c; font-family: system-ui, 
 .mr-isolation-icon { font-size: 36px; line-height: 1; }
 .mr-isolation-alarm h2 { margin: 0 0 10px; color: inherit; font-size: clamp(21px, 3vw, 28px); font-weight: 750; }
 .mr-isolation-alarm p { margin: 0; font-size: 16px; line-height: 1.5; }
+
+/* Basic form and utility classes used by the shared logon templates. */
+.z-logon-box { color: #20333c; font-family: system-ui, sans-serif; line-height: 1.5; }
+.z-logon-box .form-group { margin-bottom: 16px; }
+.z-logon-box .control-label { display: block; margin-bottom: 6px; font-weight: 600; }
+.z-logon-box .form-control {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    height: auto;
+    padding: 10px 12px;
+    border: 1px solid #bccbd1;
+    border-radius: 5px;
+    background: #fff;
+    color: #20333c;
+    font: inherit;
+}
+.z-logon-box .btn {
+    box-sizing: border-box;
+    display: inline-block;
+    padding: 10px 16px;
+    border: 1px solid #bccbd1;
+    border-radius: 5px;
+    background: #fff;
+    color: #20333c;
+    font: inherit;
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+    cursor: pointer;
+}
+.z-logon-box .btn:hover { background: #eef2f5; }
+.z-logon-box .btn-primary { border-color: #23634f; background: #23634f; color: #fff; }
+.z-logon-box .btn-primary:hover { border-color: #194b3b; background: #194b3b; }
+.z-logon-box .btn-default { background: #fff; color: #20333c; }
+.z-logon-box .btn-default:hover { background: #eef2f5; }
+.z-logon-box .btn:disabled,
+.z-logon-box .form-control:disabled { opacity: .6; cursor: not-allowed; }
+.z-logon-box :focus-visible { outline: 3px solid #5b9ece; outline-offset: 3px; }
+.z-logon-box .checkbox { margin: 12px 0; }
+.z-logon-box .checkbox label { font-weight: 400; cursor: pointer; }
+.z-logon-box .help-block { display: block; margin: 6px 0 12px; color: #596c76; }
+.z-logon-box .text-muted { color: #596c76; }
+.z-logon-box .text-info { color: #285da0; }
+.z-logon-box .text-danger,
+.z-logon-box .error { color: #8a2920; }
+.z-logon-box .alert { padding: 12px 16px; margin-bottom: 16px; border: 1px solid #bccbd1; border-radius: 5px; }
+.z-logon-box .alert-info { background: #e7eef9; border-color: #b2c8e4; color: #285da0; }
+.z-logon-box .alert-success { background: #edf7f1; border-color: #b5d8c1; color: #245b3c; }
+.z-logon-box .alert-warning { background: #fff2dd; border-color: #e7c896; color: #754400; }
+.z-logon-box .alert-danger { background: #fff0ee; border-color: #e4b2ac; color: #8a2920; }
+.z-logon-box .list-unstyled { list-style: none; margin: 0; padding: 0; }
+.z-logon-box .pull-right { float: right; }
+.z-logon-box .clearfix::after { content: ""; display: table; clear: both; }
