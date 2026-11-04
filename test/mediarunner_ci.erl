@@ -25,6 +25,12 @@
 run() ->
     try
         configure(),
+        %% Never start unrelated developer sites against their configured schemas.
+        ok = meck:new(z_sites_config, [passthrough, no_link]),
+        ok = meck:expect(z_sites_config, config_files, fun
+            (mediarunner) -> meck:passthrough([mediarunner]);
+            (_) -> []
+        end),
         ok = zotonic:start(),
         ok = await_site(120),
         {ok, _} = z_exec:sandbox_status(),

@@ -51,6 +51,7 @@ erl -noshell -pa _build/default/lib/*/ebin _build/default/checkouts/*/ebin -eval
     end, Files) of true -> halt(0); false -> halt(1) end.'
 
 erl -noshell -pa _build/default/lib/*/ebin _build/default/checkouts/*/ebin "$ci_dir/ebin" -eval '
+    {ok, _} = application:ensure_all_started(gproc),
     case eunit:test([mediarunner_tests, z_media_runner_tests, z_media_imagemagick_tests], [verbose]) of
         ok -> halt(0);
         _ -> halt(1)

@@ -74,7 +74,7 @@ Runner settings belong in the **site configuration**. Common defaults:
 | `mediarunner_uploads` | 20 upload reservations |
 | `mediarunner_cache_max_bytes` | 100 GiB |
 | `mediarunner_cache_max_age` | 7 days idle |
-| `mediarunner_result_retention` | 24 hours for uncollected outputs |
+| `mediarunner_result_retention` | 86400 seconds after completion for unacknowledged manifests and outputs |
 | `mediarunner_callback_urls` | `any` authenticated caller's valid HTTPS endpoint |
 
 See the [configuration reference](docs/reference.md#queue-and-automatic-capacity)
@@ -127,3 +127,19 @@ See the [testing reference](docs/reference.md#verification) for coverage, ports,
 large-file tests and fixture details, and the
 [cache/protocol reference](docs/reference.md#content-cache) for upload reservations,
 result delivery and cleanup behavior.
+
+### Deadlines and recovering completed results
+
+The client's global `media_runner_wait_timeout` bounds the whole operation, including
+packing, uploads, queueing, execution, downloads and fallback. Without an override,
+it uses the command timeout plus 300 seconds. The runner clamps work to the remaining
+wire expiry, including staging and result publication. Keep clocks synchronized;
+wire expiry has one-second resolution and no extra clock-skew allowance.
+
+Successful callback delivery does not mean the client received its output files.
+The owner-scoped `status` control returns completed manifests during
+`mediarunner_result_retention`, even after execution expiry. After verifying and
+installing every output, the client sends idempotent `received` control, which
+releases pins and clears the manifest. Retention cleanup handles lost receipts.
+Deploy this runner retention behavior before depending on client status recovery.
+Remote cancellation is not yet exposed; abandoned attempts remain expiry-bounded.
