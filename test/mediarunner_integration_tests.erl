@@ -157,7 +157,19 @@ status_lookup(Context) ->
         1 = z_db:q("update mediarunner_job set owner_id=-1 where id=$1", [Id], Context),
         ?assertEqual({error, enoent}, m_mediarunner_job:m_post([<<"status">>], Message, Context)),
         1 = z_db:q("update mediarunner_job set owner_id=$2,expires=0 where id=$1", [Id, z_acl:user(Context)], Context),
-        ?assertEqual({error, enoent}, m_mediarunner_job:m_post([<<"status">>], Message, Context))
+        ?assertEqual({error, enoent}, m_mediarunner_job:m_post([<<"status">>], Message, Context)),
+        %% Callback delivery is not receipt: a completed manifest remains
+        %% recoverable after execution expiry, until acknowledgement/retention.
+        z_db:q("update mediarunner_job set finished=$2 where id=$1", [Id, Now], Context),
+        ok = mediarunner_store:delivered(Id, ok, Context),
+        ?assertEqual({ok, #{outcome => <<"completed">>, result => Result}},
+            m_mediarunner_job:m_post([<<"status">>], Message, Context)),
+        ?assertEqual({ok, #{outcome => received}},
+            m_mediarunner_job:m_post([<<"received">>], Message, Context)),
+        ?assertEqual({ok, #{outcome => received}},
+            m_mediarunner_job:m_post([<<"received">>], Message, Context)),
+        ?assertEqual({ok, #{outcome => <<"completed">>}},
+            m_mediarunner_job:m_post([<<"status">>], Message, Context))
     after
         z_db:q("delete from mediarunner_job where id=$1", [Id], Context)
     end.
@@ -243,8 +255,9 @@ large_result(Context) ->
             integer_to_list(Frames), " -threads 1 -pix_fmt yuv420p -f rawvideo ", z_filelib:os_filename(Output)],
         ?assertEqual({ok, <<>>}, z_exec:run(ffmpeg, Command, #{write => [Output], timeout => 180000}, Context)),
         {ok, Size, Hash} = z_media_runner_protocol:hash_file(Output),
-        ?assertEqual(0, z_db:q1("select count(*) from mediarunner_job_file where hash=$1 and job_id=$2",
-            [Hash, ets:lookup_element(Jobs, current, 2)], Context)),
+        %% Receipt is asynchronous and bounded; successful installation returns first.
+        await(fun() -> z_db:q1("select count(*) from mediarunner_job_file where hash=$1 and job_id=$2",
+            [Hash, ets:lookup_element(Jobs, current, 2)], Context) =:= 0 end, 50),
         ?assertEqual(0, z_db:q1("select octet_length(data) from mediarunner_cache where kind='file' and owner_id=1 and hash=$1", [Hash], Context)),
         Hits = z_db:q1("select count(*) from mediarunner_job where profile='ffmpeg' and cache_hit", Context),
         ok = file:delete(Output),
@@ -635,6 +648,7 @@ upload_checks(Url, Token, ReadOnly, Context) ->
 %% then wait until the second client observes busy before allowing any progress.
 concurrent_upload(Mode, Context) ->
     Parent = self(),
+    WaitRef = make_ref(),
     Path = z_convert:to_list(z_tempfile:new()) ++ "-race.bin",
     BadPath = Path ++ ".bad",
     Data = crypto:strong_rand_bytes(4096),
@@ -648,18 +662,18 @@ concurrent_upload(Mode, Context) ->
         ok = meck:expect(z_media_runner_protocol, request, fun(U, T, Payload, Timeout) ->
             Reply = meck:passthrough([U, T, Payload, Timeout]),
             case Reply of
-                {ok, #{<<"outcome">> := <<"busy">>}} -> Parent ! {race_waiting, self()};
+                {ok, #{<<"outcome">> := <<"busy">>}} -> Parent ! {race_waiting, WaitRef, self()};
                 _ -> ok
             end,
             Reply
         end),
-        ok = meck:expect(z_media_runner_protocol, upload, fun(U, T, Lease, File, Size) ->
+        ok = meck:expect(z_media_runner_protocol, upload, fun(U, T, Lease, File, Size, Timeout) ->
             Attempt = ets:update_counter(State, attempts, 1),
             Source = case {Mode, Attempt} of
                 {corrupt, 1} -> BadPath;
                 _ -> File
             end,
-            meck:passthrough([U, T, Lease, Source, Size])
+            meck:passthrough([U, T, Lease, Source, Size, Timeout])
         end),
         ok = meck:expect(mediarunner_queue, upload, fun(Request, Owner, Ctx) ->
             Reply = meck:passthrough([Request, Owner, Ctx]),
@@ -675,7 +689,7 @@ concurrent_upload(Mode, Context) ->
         First = start_race_job(Path, <<"printf first">>, Context, State),
         {Server, Hash, OldLease, Temp} = race_claim(),
         Second = start_race_job(Path, <<"printf second">>, Context, State),
-        receive {race_waiting, Second} -> ok after 5000 -> error(second_job_did_not_wait) end,
+        receive {race_waiting, WaitRef, _Worker} -> ok after 5000 -> error(second_job_did_not_wait) end,
         ?assertEqual([{attempts, 1}], ets:lookup(State, attempts)),
         receive {race_claimed, _, _, _, _} -> error(duplicate_uploader) after 0 -> ok end,
         case Mode of
@@ -747,14 +761,14 @@ expired_upload_claim(Context) ->
     Attempts = atomics:new(1, []),
     ok = meck:new(z_media_runner_protocol, [passthrough, no_link]),
     try
-        ok = meck:expect(z_media_runner_protocol, upload, fun(U, Token, Lease, File, Size) ->
+        ok = meck:expect(z_media_runner_protocol, upload, fun(U, Token, Lease, File, Size, Timeout) ->
             case atomics:add_get(Attempts, 1, 1) of
                 1 ->
                     1 = z_db:q("update mediarunner_cache set upload_expires=0 where upload_token=$1",
                         [Lease], Context);
                 _ -> ok
             end,
-            meck:passthrough([U, Token, Lease, File, Size])
+            meck:passthrough([U, Token, Lease, File, Size, Timeout])
         end),
         ?assertEqual({ok, <<"retried">>}, z_exec:run(file, "printf retried", #{read => [Path]}, Context)),
         ?assertEqual(2, atomics:get(Attempts, 1))

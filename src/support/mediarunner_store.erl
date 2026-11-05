@@ -337,7 +337,7 @@ delivered(Id, _, Context) ->
 finish_delivery(Id, Status, Context) ->
     z_db:q("
         update mediarunner_job
-        set delivery=$2,payload=null,result=null, callback_token=null,callback_url=null,delivered_at=$3
+        set delivery=$2,payload=null, callback_token=null,callback_url=null,delivered_at=$3
         where id=$1",
         [Id, Status, now()],
         Context
@@ -417,6 +417,8 @@ cleanup(Context) ->
             from mediarunner_job
             where finished < $1
         )",
+        [now() - setting(mediarunner_result_retention, 86400, Context)], Context),
+    z_db:q("update mediarunner_job set result=null where finished < $1 and result is not null",
         [now() - setting(mediarunner_result_retention, 86400, Context)], Context),
     ok = mediarunner_statistics:archive(now() - 604800, Context),
     ok.

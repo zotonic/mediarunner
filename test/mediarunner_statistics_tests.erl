@@ -46,7 +46,7 @@ run(Context) ->
             <<"callbacks_pending">> := 1, <<"cached_files">> := 1, <<"cached_bytes">> := 200}, Mine),
         ?assertMatch(#{<<"submitted">> := 1, <<"processing_seconds">> := 1000}, maps:get(-2, Stats)),
         %% Rollback restores both job rows and totals, with no loss or double count.
-        ?assertEqual(rolled_back, z_db:transaction(fun(Ctx) ->
+        ?assertEqual({rollback, rolled_back}, z_db:transaction(fun(Ctx) ->
             ok = mediarunner_statistics:archive(Now - 604800, Ctx),
             {rollback, rolled_back}
         end, Context)),

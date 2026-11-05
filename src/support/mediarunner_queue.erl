@@ -252,11 +252,19 @@ work(
                     {ok, Hit} ->
                         {Hit, true};
                     {error, missing} ->
-                        R = z_media_runner_protocol:execute(Job, fun(F) ->
+                        Deadline = erlang:monotonic_time(millisecond)
+                            + max(0, Expires - erlang:system_time(second)) * 1000,
+                        R0 = z_media_deadline:run(fun() -> z_media_runner_protocol:execute(
+                            Job#{<<"timeout">> => min(maps:get(<<"timeout">>, Job),
+                                max(1, Deadline - erlang:monotonic_time(millisecond)))}, fun(F) ->
                             mediarunner_cache:read(F, Owner, Context)
                         end, fun(Path, F) ->
                             mediarunner_results:publish(Path, F, Id, Owner, Context)
-                        end, mediarunner_cleanup:work_dir(Id, Context)),
+                        end, mediarunner_cleanup:work_dir(Id, Context)) end, Deadline),
+                        R = case R0 of
+                            {error, _} -> #{<<"status">> => <<"error">>, <<"error">> => <<"job_expired">>};
+                            _ -> R0
+                        end,
                         {R, false}
                 end;
             false ->

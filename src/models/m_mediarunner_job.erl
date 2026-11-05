@@ -20,9 +20,20 @@
 -module(m_mediarunner_job).
 -behaviour(zotonic_model).
 
+-moduledoc(#{zotonic_keywords => ["reference", "backend_developer", "model", "media_management", "file_storage"]}).
 -moduledoc("Authenticated control channel. Every operation requires a writable
 context with use/mediarunner permission. Payloads and outcomes are identical over
-HTTP model APIs and MQTT; source/result bytes use separate streaming endpoints.").
+HTTP model APIs and MQTT; source/result bytes use separate streaming endpoints.
+
+`status` accepts a job `id` and returns its outcome and, when available, its result
+manifest. Only the submitting consumer can read it. Completed manifests remain
+recoverable after execution expiry for `mediarunner_result_retention` seconds
+(default 86400) after completion. Successful callback delivery clears callback
+credentials, but does not acknowledge receipt of output files.
+
+`received` accepts a job `id` after all outputs have been verified and installed.
+It idempotently releases result pins and removes the manifest. Lost receipts are
+handled by retention cleanup. Expired queued jobs never start executing.").
 
 -export([
     m_get/3,
@@ -102,8 +113,9 @@ control([<<"status">>], #{<<"id">> := Id}, Context) when is_binary(Id), byte_siz
     case z_db:q("
         select status,result
         from mediarunner_job
-        where id=$1 and owner_id=$2 and expires>$3",
-        [Id, z_acl:user(Context), erlang:system_time(second)], Context) of
+        where id=$1 and owner_id=$2 and (expires>$3 or finished>$4)",
+        [Id, z_acl:user(Context), erlang:system_time(second),
+            erlang:system_time(second) - result_retention(Context)], Context) of
         [{Status, Result}] when is_binary(Result) ->
             {ok, #{outcome => Status, result => z_json:decode(Result)}};
         [{Status, _}] -> outcome(Status);
@@ -118,13 +130,23 @@ control([<<"received">>], #{<<"id">> := Id}, Context) when is_binary(Id), byte_s
           and status='completed'",
             [Id, z_acl:user(Context)], Context) of
         1 ->
-            ok = mediarunner_cache:release(Id, Context),
+            ok = z_db:transaction(fun(Ctx) ->
+                ok = mediarunner_cache:release(Id, Ctx),
+                z_db:q("update mediarunner_job set result=null where id=$1", [Id], Ctx),
+                ok
+            end, Context),
             outcome(received);
         0 ->
             {error, enoent}
     end;
 control(_, _, _) ->
     {error, unknown_path}.
+
+result_retention(Context) ->
+    case m_site:get(mediarunner_result_retention, Context) of
+        undefined -> 86400;
+        Seconds -> Seconds
+    end.
 
 outcome(Outcome) ->
     {ok, #{outcome => Outcome}}.

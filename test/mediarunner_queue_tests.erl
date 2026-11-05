@@ -30,7 +30,7 @@ run(Context) ->
     try
         %% This CI schema retains history between runs. Isolate the batch inside
         %% a transaction and roll it back, preserving all pre-existing job rows.
-        ?assertEqual(ok, z_db:transaction(fun(Ctx) ->
+        ?assertEqual({rollback, ok}, z_db:transaction(fun(Ctx) ->
             z_db:q("delete from mediarunner_job", Ctx),
             batch(Ctx),
             profile_selection(Ctx),
