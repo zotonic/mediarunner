@@ -26,10 +26,14 @@ context with use/mediarunner permission. Payloads and outcomes are identical ove
 HTTP model APIs and MQTT; source/result bytes use separate streaming endpoints.
 
 `status` accepts a job `id` and returns its outcome and, when available, its result
-manifest. Only the submitting consumer can read it. Completed manifests remain
+manifest. Optional integer `wait` (0–25 seconds) long polls active jobs.
+Only the submitting consumer can read it. Completed manifests remain
 recoverable after execution expiry for `mediarunner_result_retention` seconds
 (default 86400) after completion. Successful callback delivery clears callback
 credentials, but does not acknowledge receipt of output files.
+
+Submissions with `result_method` set to `poll` omit callback URL and token;
+results are recovered exclusively via authenticated status requests.
 
 `received` accepts a job `id` after all outputs have been verified and installed.
 It idempotently releases result pins and removes the manifest. Lost receipts are
@@ -109,18 +113,14 @@ control([<<"reserve">>], #{<<"hash">> := Hash, <<"size">> := Size}, Context)
             {error, payload}
     end;
 %% Only the submitting consumer can recover status or a lost result callback.
-control([<<"status">>], #{<<"id">> := Id}, Context) when is_binary(Id), byte_size(Id) =< 64 ->
-    case z_db:q("
-        select status,result
-        from mediarunner_job
-        where id=$1 and owner_id=$2 and (expires>$3 or finished>$4)",
-        [Id, z_acl:user(Context), erlang:system_time(second),
-            erlang:system_time(second) - result_retention(Context)], Context) of
-        [{Status, Result}] when is_binary(Result) ->
-            {ok, #{outcome => Status, result => z_json:decode(Result)}};
-        [{Status, _}] -> outcome(Status);
-        [] -> {error, enoent}
+control([<<"status">>], #{<<"id">> := Id} = Payload, Context) when is_binary(Id), byte_size(Id) =< 64 ->
+    case maps:get(<<"wait">>, Payload, 0) of
+        Wait when is_integer(Wait), Wait >= 0, Wait =< 25 ->
+            status(Id, erlang:monotonic_time(millisecond) + Wait * 1000, Context);
+        _ -> {error, payload}
     end;
+control([<<"status">>], _, _) ->
+    {error, payload};
 control([<<"received">>], #{<<"id">> := Id}, Context) when is_binary(Id), byte_size(Id) =< 64 ->
     case z_db:q1("
         select count(*)
@@ -142,6 +142,32 @@ control([<<"received">>], #{<<"id">> := Id}, Context) when is_binary(Id), byte_s
 control(_, _, _) ->
     {error, unknown_path}.
 
+%% Wait in the request process, never in the queue coordinator or a transaction.
+%% Recheck durable state so completion and restarts cannot lose a notification.
+status(Id, Deadline, Context) ->
+    Reply = status(Id, Context),
+    Left = Deadline - erlang:monotonic_time(millisecond),
+    case Reply of
+        {ok, #{outcome := Status}} when Left > 0,
+                (Status =:= <<"queued">> orelse Status =:= <<"starting">> orelse Status =:= <<"running">>) ->
+            timer:sleep(min(1000, Left)),
+            status(Id, Deadline, Context);
+        _ -> Reply
+    end.
+
+status(Id, Context) ->
+    case z_db:q("
+        select status,result
+        from mediarunner_job
+        where id=$1 and owner_id=$2 and (expires>$3 or finished>$4)",
+        [Id, z_acl:user(Context), erlang:system_time(second),
+            erlang:system_time(second) - result_retention(Context)], Context) of
+        [{Status, Result}] when is_binary(Result) ->
+            {ok, #{outcome => Status, result => z_json:decode(Result)}};
+        [{Status, _}] -> outcome(Status);
+        [] -> {error, enoent}
+    end.
+
 result_retention(Context) ->
     case m_site:get(mediarunner_result_retention, Context) of
         undefined -> 86400;
@@ -159,8 +185,6 @@ valid_hash(_) -> false.
 validate(
     #{
         <<"id">> := Id,
-        <<"callback_url">> := Url,
-        <<"callback_token">> := Secret,
         <<"expires">> := Expires
     } = Job,
     Allowed
@@ -170,9 +194,7 @@ validate(
         ok = z_media_runner_protocol:validate(Job),
         true = is_binary(Id) andalso byte_size(Id) >= 16 andalso byte_size(Id) =< 64,
         match = re:run(Id, <<"^[a-zA-Z0-9_-]+$">>, [{capture, none}]),
-        true = is_binary(Secret) andalso byte_size(Secret) >= 32 andalso byte_size(Secret) =< 128,
-        match = re:run(Secret, <<"^[a-zA-Z0-9+/=_-]+$">>, [{capture, none}]),
-        true = mediarunner_callback:is_allowed(Url, Allowed),
+        true = valid_delivery(Job, Allowed),
         Now = erlang:system_time(second),
         true = is_integer(Expires) andalso Expires > Now andalso Expires =< Now + 86400,
         ok
@@ -182,3 +204,13 @@ validate(
     end;
 validate(_, _) ->
     {error, invalid_job}.
+
+%% Polling jobs deliberately carry no callback destination or bearer secret.
+valid_delivery(#{<<"result_method">> := <<"poll">>} = Job, _) ->
+    not maps:is_key(<<"callback_url">>, Job) andalso not maps:is_key(<<"callback_token">>, Job);
+valid_delivery(#{<<"callback_url">> := Url, <<"callback_token">> := Secret} = Job, Allowed) ->
+    maps:get(<<"result_method">>, Job, <<"callback">>) =:= <<"callback">>
+        andalso is_binary(Secret) andalso byte_size(Secret) >= 32 andalso byte_size(Secret) =< 128
+        andalso re:run(Secret, <<"^[a-zA-Z0-9+/=_-]+$">>, [{capture, none}]) =:= match
+        andalso mediarunner_callback:is_allowed(Url, Allowed);
+valid_delivery(_, _) -> false.

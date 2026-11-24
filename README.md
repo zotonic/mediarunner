@@ -51,6 +51,13 @@ Image, audio and video processing use the runner automatically. Custom code uses
 `z_exec:run(Profile, Command, Options, Context)` and declares input/output files in
 `read` and `write`. Plain `z_exec:run/1,2` commands remain local.
 
+Clients default to `{media_runner_result_method, auto}`: non-public or unresolved
+canonical hostnames (including `.test` entries in `/etc/hosts`) use outbound long
+polling. Force `{media_runner_result_method, poll}` for sites behind firewalls or
+`callback` for HTTPS callbacks. Polling requires this updated runner and allows
+sites without inbound Internet access; proxy control timeouts must allow at least
+30 seconds. Results use the same authenticated downloads and receipt handling.
+
 Callbacks use the originating site's `media_runner_callback` dispatch route.
 The URL must be reachable from the runner and route to the **submitting Zotonic
 node**, including behind a load balancer. Pending calls do not survive a client
