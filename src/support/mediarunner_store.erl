@@ -151,8 +151,8 @@ enqueue(Job, Owner, Context) ->
                                             maps:get(<<"profile">>, Job),
                                             Hash,
                                             Payload,
-                                            maps:get(<<"callback_url">>, Job),
-                                            maps:get(<<"callback_token">>, Job),
+                                            maps:get(<<"callback_url">>, Job, undefined),
+                                            maps:get(<<"callback_token">>, Job, undefined),
                                             now(),
                                             maps:get(<<"expires">>, Job)
                                         ],
@@ -299,9 +299,9 @@ result(Id, Result, Cached, Context) ->
                 result = $3,
                 error = $4,
                 finished = $5,
-                delivery = 'pending',
+                delivery = case when callback_url is null then 'poll' else 'pending' end,
                 next_attempt = $5,
-                payload = '{}',
+                payload = case when callback_url is null then null else '{}' end,
                 cache_hit = $6
             where id=$1",
             [Id, Status, z_json:encode(Result), Error, now(), Cached], Ctx),

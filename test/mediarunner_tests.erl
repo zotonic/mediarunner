@@ -35,6 +35,10 @@ request_boundary_test() ->
         <<"callback_token">> => base64:encode(crypto:strong_rand_bytes(32)),
         <<"expires">> => erlang:system_time(second) + 60
     },
+    Poll = (maps:without([<<"callback_url">>, <<"callback_token">>], Job))#{<<"result_method">> => <<"poll">>},
+    ?assertEqual(ok, m_mediarunner_job:validate(Poll, [])),
+    ?assertEqual({error, invalid_job}, m_mediarunner_job:validate(Poll#{<<"callback_url">> => Url}, any)),
+    ?assertEqual({error, invalid_job}, m_mediarunner_job:validate(Job#{<<"result_method">> => <<"unknown">>}, any)),
     ?assertEqual(ok, m_mediarunner_job:validate(Job, [Url])),
     ?assertEqual(ok, m_mediarunner_job:validate(Job, any)),
     ?assertEqual(ok, m_mediarunner_job:validate(Job, undefined)),
@@ -117,3 +121,29 @@ authorization_context_test() ->
             ?assertEqual({error, eacces}, m_mediarunner_job:m_post([Operation], #{payload => #{}}, Context))
         end, [<<"submit">>, <<"reserve">>, <<"received">>, <<"status">>])
     end, [Anonymous, ReadOnly]).
+
+long_poll_status_test() ->
+    Context = z_acl:sudo(#context{site = zotonic_site_testsandbox}),
+    ok = meck:new(z_db, [passthrough, no_link]),
+    ok = meck:new(m_site, [passthrough, no_link]),
+    try
+        meck:expect(m_site, get, fun(mediarunner_result_retention, _) -> 86400 end),
+        meck:expect(z_db, q, fun(_, [<<"owned-job">>, Owner, _, _], _) ->
+            ?assertEqual(z_acl:user(Context), Owner),
+            case get(poll_status_called) of
+                undefined -> put(poll_status_called, true), [{<<"running">>, undefined}];
+                true -> [{<<"completed">>, <<"{\"status\":\"ok\"}">>}]
+            end
+        end),
+        Post = fun(Payload) -> m_mediarunner_job:m_post([<<"status">>], #{payload => Payload}, Context) end,
+        ?assertMatch({ok, #{result := #{<<"status">> := <<"ok">>}}},
+            Post(#{<<"id">> => <<"owned-job">>, <<"wait">> => 2})),
+        lists:foreach(fun(Wait) ->
+            ?assertEqual({error, payload}, Post(#{<<"id">> => <<"owned-job">>, <<"wait">> => Wait}))
+        end, [-1, 26, <<"25">>]),
+        meck:expect(z_db, q, fun(_, _, _) -> [] end),
+        ?assertEqual({error, enoent}, Post(#{<<"id">> => <<"other-owner">>, <<"wait">> => 25}))
+    after
+        erase(poll_status_called),
+        meck:unload([z_db, m_site])
+    end.
